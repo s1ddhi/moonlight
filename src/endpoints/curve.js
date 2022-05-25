@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const Web3 = require('web3');
-const CurveLendingABIAddress = "0x77a4722943A784d29DfD47634CF0d87386196a28"; // TBC
+const CurveLendingABIAddress = "0xA73aa1aD14CB00839A0751b21CCCCb4F4C2F3A8d"; // TBC
 
 const fs = require('fs');
 const curveContract = JSON.parse(fs.readFileSync('src/contracts/CurveLending.json', 'utf8'));
@@ -10,12 +10,54 @@ const curveContract = JSON.parse(fs.readFileSync('src/contracts/CurveLending.jso
 const web3 = new Web3("http://localhost:8545");
 const CurveLendingContract = new web3.eth.Contract(curveContract.abi, CurveLendingABIAddress);
 
-router.get('/withdraw', function (req, res) {
-    res.send("withdraw WIP");
+router.get('/withdraw', async (req, res) => {
+    const accounts = await web3.eth.getAccounts();
+
+    await CurveLendingContract.methods
+    .oneShotWithdrawAll()
+    .send({ from: accounts[0], gas: 1e7 }, function (err, _) {
+        if (err) {
+            console.log("An error occured in oneShotLendAll", err)
+            return
+        }
+    });
+
+    const stakedConvexLPBal = await CurveLendingContract.methods
+        .getStakedConvexLPBalance()
+        .call(function (err, res) {
+            if (err) {
+                console.log("An error occured", err)
+                return
+            }
+        return res;
+        });
+    
+    res.send(`Staked Convex LP Balance: ${normalise(stakedConvexLPBal, ERC20_DECIMAL)} <br>${await getContractBalance()}</br>`);
 });
 
-router.get('/deposit', function (req, res) {
-    res.send("deposit WIP");
+router.get('/deposit', async (_, res) => {
+    const accounts = await web3.eth.getAccounts();
+    console.log(accounts);
+    await CurveLendingContract.methods
+        .oneShotLendAll()
+        .send({ from: accounts[0], gas: 1e7 }, function (err, _) {
+            if (err) {
+                console.log("An error occured in oneShotLendAll", err)
+                return
+            }
+        });
+    
+    const stakedConvexLPBal = await CurveLendingContract.methods
+        .getStakedConvexLPBalance()
+        .call(function (err, res) {
+            if (err) {
+                console.log("An error occured", err)
+                return
+            }
+        return res;
+        });
+    
+    res.send(`Staked Convex LP Balance: ${normalise(stakedConvexLPBal, ERC20_DECIMAL)} <br>${await getContractBalance()}</br>`);
 });
 
 const IERC20ABI = JSON.parse(fs.readFileSync('src/contracts/IERC20.json', 'utf8'));
@@ -32,9 +74,16 @@ const DAI_WHALE = "0x28c6c06298d514db089934071355e5743bf21d60";
 const USDC_WHALE = "0xcffad3200574698b78f32232aa9d63eabd290703";
 const USDT_WHALE = "0x5754284f345afc66a98fbb0a0afe71e0f007b949";
 
-router.get('/setupAll', async (req, res) => {
+const DAI_DECIMAL = 18;
+const USDC_DECIMAL = 6;
+const USDT_DECIMAL = 6;
+const ERC20_DECIMAL = 18;
+
+router.get('/setupAll', async (_, res) => {
+    const assetVal = 1e6;
+
     await DAI_CONTRACT.methods
-        .transfer(CurveLendingABIAddress, "1000000")
+        .transfer(CurveLendingABIAddress, unnormalise(assetVal, DAI_DECIMAL))
         .send({ from: DAI_WHALE }, function (err, res) {
             if (err) {
                 console.log("An error occured", err)
@@ -44,7 +93,7 @@ router.get('/setupAll', async (req, res) => {
     });
 
     await USDC_CONTRACT.methods
-        .transfer(CurveLendingABIAddress, "1000000")
+        .transfer(CurveLendingABIAddress, unnormalise(assetVal, USDC_DECIMAL))
         .send({ from: USDC_WHALE }, function (err, res) {
             if (err) {
                 console.log("An error occured", err)
@@ -54,7 +103,7 @@ router.get('/setupAll', async (req, res) => {
     });
 
     await USDT_CONTRACT.methods
-        .transfer(CurveLendingABIAddress, "1000000")
+        .transfer(CurveLendingABIAddress, unnormalise(assetVal, USDT_DECIMAL))
         .send({ from: USDT_WHALE }, function (err, res) {
             if (err) {
                 console.log("An error occured", err)
@@ -63,32 +112,43 @@ router.get('/setupAll', async (req, res) => {
         console.log("Hash of USDC transaction: " + res)
     });
 
+    res.send(await getContractBalance());
+});
+
+const unnormalise = (normalisedAmount, assetDecimal) => {
+    return web3.utils.toBN(normalisedAmount).mul(web3.utils.toBN(10).pow(web3.utils.toBN(assetDecimal)))
+};
+
+const normalise = (unnormalisedAmount, assetDecimal) => {
+    return web3.utils.toBN(unnormalisedAmount).div(web3.utils.toBN(10).pow(web3.utils.toBN(assetDecimal)));
+};
+
+const getContractBalance = async () => {
     const DAI_BAL = await DAI_CONTRACT.methods.balanceOf(CurveLendingABIAddress).call(function (err, res) {
         if (err) {
-            console.log("An error occured", err)
-            return
+            console.log("An error occured", err);
+            return;
         }
-    return res;
+        return res;
     });
-    
+
     const USDC_BAL = await USDC_CONTRACT.methods.balanceOf(CurveLendingABIAddress).call(function (err, res) {
         if (err) {
-            console.log("An error occured", err)
-            return
+            console.log("An error occured", err);
+            return;
         }
-    return res;
+        return res;
     });
 
     const USDT_BAL = await USDT_CONTRACT.methods.balanceOf(CurveLendingABIAddress).call(function (err, res) {
         if (err) {
-            console.log("An error occured", err)
-            return
+            console.log("An error occured", err);
+            return;
         }
-    return res;
+        return res;
     });
 
-    const result = `Contract Balance\nDAI = ${DAI_BAL}\nUSDC = ${USDC_BAL}\nUSDT = ${USDT_BAL}`;
-    res.send(result);
-});
+    return `Contract Balance: DAI = ${normalise(DAI_BAL, DAI_DECIMAL)}\nUSDC = ${normalise(USDC_BAL, USDC_DECIMAL)}\nUSDT = ${normalise(USDT_BAL, USDT_DECIMAL)}`;
+}
 
 module.exports = router;
