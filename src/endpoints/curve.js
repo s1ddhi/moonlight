@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const Web3 = require('web3');
-const CurveLendingABIAddress = "0xA73aa1aD14CB00839A0751b21CCCCb4F4C2F3A8d"; // TBC
+const CurveLendingABIAddress = "0x8a359844E7D446f4F87932df6DA86BdA49866643"; // TBC
 
 const fs = require('fs');
 const curveContract = JSON.parse(fs.readFileSync('src/contracts/CurveLending.json', 'utf8'));
@@ -10,8 +10,29 @@ const curveContract = JSON.parse(fs.readFileSync('src/contracts/CurveLending.jso
 const web3 = new Web3("http://localhost:8545");
 const CurveLendingContract = new web3.eth.Contract(curveContract.abi, CurveLendingABIAddress);
 
-router.get('/withdraw', async (req, res) => {
+const { loadDB, findByUserID, findUserIDBalance, insertDocument, closeDB } = require('../mongoDB');
+
+const LEDGER_COLLECTION = 'ledger';
+const WITHDRAW_TYPE = 'withdraw';
+const DEPOSIT_TYPE = 'deposit';
+
+router.get('/withdraw', async (_, res) => {
     const accounts = await web3.eth.getAccounts();
+
+    // Get from request
+    const userID = '0x1111111111';
+
+    const loadedDb = await loadDB();
+    // TODO For specific amount to withdraw + check if user has enough
+
+    const aggregatedBalance = await findUserIDBalance(loadedDb, LEDGER_COLLECTION, userID, WITHDRAW_TYPE);
+
+    if (aggregatedBalance < requestedWithdrawal) {
+        res.statusCode = 400;
+        res.send(`There is insufficient balance for user ${userID}`);
+    };
+
+    await insertDocument(loadedDb, LEDGER_COLLECTION, userID, ledgerDocument(userID, requestedWithdrawal, WITHDRAW_TYPE));
 
     await CurveLendingContract.methods
     .oneShotWithdrawAll()
@@ -35,6 +56,14 @@ router.get('/withdraw', async (req, res) => {
     res.send(`Staked Convex LP Balance: ${normalise(stakedConvexLPBal, ERC20_DECIMAL)} <br>${await getContractBalance()}</br>`);
 });
 
+const ledgerDocument = (userID, amount, type) => {
+    return {
+        userID,
+        amount,
+        type
+    };
+};
+
 router.get('/deposit', async (_, res) => {
     const accounts = await web3.eth.getAccounts();
     console.log(accounts);
@@ -46,7 +75,7 @@ router.get('/deposit', async (_, res) => {
                 return
             }
         });
-    
+
     const stakedConvexLPBal = await CurveLendingContract.methods
         .getStakedConvexLPBalance()
         .call(function (err, res) {
@@ -56,7 +85,7 @@ router.get('/deposit', async (_, res) => {
             }
         return res;
         });
-    
+
     res.send(`Staked Convex LP Balance: ${normalise(stakedConvexLPBal, ERC20_DECIMAL)} <br>${await getContractBalance()}</br>`);
 });
 
