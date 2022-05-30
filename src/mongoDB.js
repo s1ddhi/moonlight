@@ -25,24 +25,15 @@ const loadDB = async () => {
 const findByUserID = async (_db, collection, userId) => {
     const dbCollection = _db.collection(collection);
 
-    const result = await dbCollection.find({ userId }).toArray((err, result) => {
-        if (err) {
-            console.log(`Error finding document with user ID: ${userId}`);
-        }
-
-        console.log(result);
-        return result;
-    });
-
-    return result;
+    return(await dbCollection.find({ user }).toArray());
 };
 
-const findUserIDBalance = async (_db, collection, userId, action) => {
+const findUserIDBalance = async (_db, collection, user, action) => {
     const dbCollection = _db.collection(collection);
 
     const result = await dbCollection.aggregate([
         {
-            $match: { userId, action }
+            $match: { user, action }
         },
         {
             $group: {
@@ -52,28 +43,19 @@ const findUserIDBalance = async (_db, collection, userId, action) => {
                 }
             }
         }
-    ]).toArray((err, result) => {
-        if (err) {
-            console.log(`Error finding document with user ID: ${userId}`);
-        }
+    ]).toArray();
 
-        console.log(result); // TODO this does not return following await call of aggregate...
-        return result;
-    });
-
-    return result;
+    return result[0].total;
 };
 
 const insertDocument = async (_db, collection, document) => {
-        const dbCollection = _db.collection(collection);
+    const dbCollection = _db.collection(collection);
 
-        dbCollection.insertOne(document, (err, result) => {
-            if (err) {
-                return console.log(`Error inserting document: ${document} into collection ${collection}`, err);
-            }
-
-            console.log("Success insert:", result);
-        })
+    dbCollection.insertOne(document, (err, result) => {
+        if (err) {
+            return console.log(`Error inserting document: ${document} into collection ${collection}`, err);
+        }
+    })
 };
 
 const closeDB = async (_db) => {

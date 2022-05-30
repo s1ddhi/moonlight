@@ -1,8 +1,10 @@
 const express = require('express');
 const router = express.Router();
+const bodyParser = require('body-parser');
+const jsonParser = bodyParser.json();
 
 const Web3 = require('web3');
-const CurveLendingABIAddress = "0x8a359844E7D446f4F87932df6DA86BdA49866643"; // TBC
+const CurveLendingABIAddress = "0x47aedF700c7bc22614F0978ECaB22232Cbd86670"; // TBC
 
 const fs = require('fs');
 const curveContract = JSON.parse(fs.readFileSync('src/contracts/CurveLending.json', 'utf8'));
@@ -11,28 +13,35 @@ const web3 = new Web3("http://localhost:8545");
 const CurveLendingContract = new web3.eth.Contract(curveContract.abi, CurveLendingABIAddress);
 
 const { loadDB, findByUserID, findUserIDBalance, insertDocument, closeDB } = require('../mongoDB');
+const req = require('express/lib/request');
 
 const LEDGER_COLLECTION = 'ledger';
 const WITHDRAW_TYPE = 'withdraw';
 const DEPOSIT_TYPE = 'deposit';
 
-router.get('/withdraw', async (_, res) => {
+router.post('/withdraw', jsonParser, async (req, res) => {
     const accounts = await web3.eth.getAccounts();
 
-    // Get from request
-    const userID = '0x1111111111';
+    if (!req.body.user || !req.body.requestedWithdrawal) {
+        res.status(400).send("Missing body attributes");
+        return;
+    }
+
+    const user = req.body.user;
+    const requestedWithdrawal = req.body.requestedWithdrawal;
 
     const loadedDb = await loadDB();
-    // TODO For specific amount to withdraw + check if user has enough
-
-    const aggregatedBalance = await findUserIDBalance(loadedDb, LEDGER_COLLECTION, userID, WITHDRAW_TYPE);
+    const aggregatedBalance = await findUserIDBalance(loadedDb, LEDGER_COLLECTION, user, DEPOSIT_TYPE);
 
     if (aggregatedBalance < requestedWithdrawal) {
         res.statusCode = 400;
-        res.send(`There is insufficient balance for user ${userID}`);
+        res.send(`There is insufficient balance for user ${user}`);
+        return;
     };
 
-    await insertDocument(loadedDb, LEDGER_COLLECTION, userID, ledgerDocument(userID, requestedWithdrawal, WITHDRAW_TYPE));
+    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument(user, requestedWithdrawal, WITHDRAW_TYPE));
+
+    console.log(`Withdrawing ${requestedWithdrawal} from user ${user}`)
 
     await CurveLendingContract.methods
     .oneShotWithdrawAll()
@@ -52,21 +61,39 @@ router.get('/withdraw', async (_, res) => {
             }
         return res;
         });
-    
+
     res.send(`Staked Convex LP Balance: ${normalise(stakedConvexLPBal, ERC20_DECIMAL)} <br>${await getContractBalance()}</br>`);
 });
 
-const ledgerDocument = (userID, amount, type) => {
+const ledgerDocument = (user, amount, type) => {
     return {
-        userID,
+        user,
         amount,
-        type
+        type,
+        date: new Date()
     };
 };
 
-router.get('/deposit', async (_, res) => {
+
+router.post('/deposit', jsonParser, async (req, res) => {
     const accounts = await web3.eth.getAccounts();
-    console.log(accounts);
+
+    if (!req.body.user || !req.body.requestedDeposit) {
+        res.status(400).send("Missing body attributes");
+        return;
+    }
+
+    const user = req.body.user;
+    const requestedDeposit = req.body.requestedDeposit;
+
+    const loadedDb = await loadDB();
+
+    console.log(ledgerDocument(user, requestedDeposit, DEPOSIT_TYPE));
+
+    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument(user, requestedDeposit, DEPOSIT_TYPE));
+
+    console.log(`Depositing ${requestedDeposit} from user ${user}`)
+
     await CurveLendingContract.methods
         .oneShotLendAll()
         .send({ from: accounts[0], gas: 1e7 }, function (err, _) {
