@@ -28,24 +28,83 @@ const findByUserID = async (_db, collection, userId) => {
     return(await dbCollection.find({ user }).toArray());
 };
 
-const findUserIDBalance = async (_db, collection, user, action) => {
+const findUserIDBalance = async (_db, collection, user, type) => {
     const dbCollection = _db.collection(collection);
 
     const result = await dbCollection.aggregate([
         {
-            $match: { user, action }
+            $match: { user, type }
         },
         {
             $group: {
                 _id: null,
-                total: {
-                    $sum: "$amount"
+                daiTotal: {
+                    $sum: "$amounts.dai"
+                },
+                usdcTotal: {
+                    $sum: "$amounts.usdc"
+                },
+                usdtTotal: {
+                    $sum: "$amounts.usdt"
                 }
             }
         }
     ]).toArray();
 
-    return result[0].total;
+    if(result.length == 0) {
+        return 0; // TODO define empty
+    }
+
+    delete result[0]._id;
+
+    return result[0];
+};
+
+const findTotals = async (_db, collection, type) => {
+    const dbCollection = _db.collection(collection);
+
+    const result = await dbCollection.aggregate([
+        {
+            $match: { type }
+        },
+        {
+            $group: {
+                _id: null,
+                daiTotal: {
+                    $sum: "$amounts.dai"
+                },
+                usdcTotal: {
+                    $sum: "$amounts.usdc"
+                },
+                usdtTotal: {
+                    $sum: "$amounts.usdt"
+                }
+            }
+        }
+    ]).toArray();
+
+    if(result.length == 0) {
+        return 0;
+    }
+
+    delete result[0]._id;
+
+    return result[0];
+};
+
+const DEPOSIT_TYPE = 'deposit';
+
+const findUserProportions = async (_db, collection, user, action) => {
+    const totalDeposits = await findTotals(_db, collection, DEPOSIT_TYPE);
+    const aggregatedTotalDeposits = aggregate(totalDeposits);
+    const userDeposits = await findUserIDBalance(_db, collection, user, action);
+    const aggregatedUserDeposits = aggregate(userDeposits);
+
+    return aggregatedUserDeposits / aggregatedTotalDeposits;
+};
+
+const aggregate = (obj) => {
+    return Object.values(obj).reduce((a, b) => a + b);
 };
 
 const insertDocument = async (_db, collection, document) => {
@@ -63,4 +122,4 @@ const closeDB = async (_db) => {
     console.log('Connection closed with MongoDB');
 };
 
-module.exports = { loadDB, findByUserID, findUserIDBalance, insertDocument, closeDB };
+module.exports = { loadDB, findByUserID, findUserIDBalance, findTotals, findUserProportions, insertDocument, closeDB };

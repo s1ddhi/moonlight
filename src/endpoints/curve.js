@@ -4,7 +4,7 @@ const bodyParser = require('body-parser');
 const jsonParser = bodyParser.json();
 
 const Web3 = require('web3');
-const CurveLendingABIAddress = "0x47aedF700c7bc22614F0978ECaB22232Cbd86670"; // TBC
+const CurveLendingABIAddress = "0x0b0Dc405942314dB54414e6d6D23d913ECCb8321"; // TBC
 
 const fs = require('fs');
 const curveContract = JSON.parse(fs.readFileSync('src/contracts/CurveLending.json', 'utf8'));
@@ -39,12 +39,12 @@ router.post('/withdraw', jsonParser, async (req, res) => {
         return;
     };
 
-    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument(user, requestedWithdrawal, WITHDRAW_TYPE));
+    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument(user, requestedWithdrawal, WITHDRAW_TYPE)); // TODO actually store amount of DAI, USDC, USDT received
 
     console.log(`Withdrawing ${requestedWithdrawal} from user ${user}`)
 
     await CurveLendingContract.methods
-    .oneShotWithdrawAll()
+    .oneShotWithdraw(unnormalise(requestedWithdrawal, ERC20_DECIMAL))
     .send({ from: accounts[0], gas: 1e7 }, function (err, _) {
         if (err) {
             console.log("An error occured in oneShotLendAll", err)
@@ -88,14 +88,13 @@ router.post('/deposit', jsonParser, async (req, res) => {
 
     const loadedDb = await loadDB();
 
-    console.log(ledgerDocument(user, requestedDeposit, DEPOSIT_TYPE));
-
     await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument(user, requestedDeposit, DEPOSIT_TYPE));
 
-    console.log(`Depositing ${requestedDeposit} from user ${user}`)
+    console.log(`Depositing ${requestedDeposit} from user ${user}`);
+    console.log(normalise(requestedDeposit.dai, DAI_DECIMAL).toString(), normalise(requestedDeposit.usdc, USDC_DECIMAL).toString(), normalise(requestedDeposit.usdt, USDT_DECIMAL).toString());
 
     await CurveLendingContract.methods
-        .oneShotLendAll()
+        .oneShotLend(unnormalise(requestedDeposit.dai, DAI_DECIMAL), unnormalise(requestedDeposit.usdc, USDC_DECIMAL), unnormalise(requestedDeposit.usdt, USDT_DECIMAL))
         .send({ from: accounts[0], gas: 1e7 }, function (err, _) {
             if (err) {
                 console.log("An error occured in oneShotLendAll", err)
@@ -113,7 +112,7 @@ router.post('/deposit', jsonParser, async (req, res) => {
         return res;
         });
 
-    res.send(`Staked Convex LP Balance: ${normalise(stakedConvexLPBal, ERC20_DECIMAL)} <br>${await getContractBalance()}</br>`);
+    res.send(`Staked Convex LP Balance: ${normalise(stakedConvexLPBal, ERC20_DECIMAL)} \n\n${await getContractBalance()}`);
 });
 
 const IERC20ABI = JSON.parse(fs.readFileSync('src/contracts/IERC20.json', 'utf8'));
@@ -204,7 +203,7 @@ const getContractBalance = async () => {
         return res;
     });
 
-    return `Contract Balance: DAI = ${normalise(DAI_BAL, DAI_DECIMAL)}\nUSDC = ${normalise(USDC_BAL, USDC_DECIMAL)}\nUSDT = ${normalise(USDT_BAL, USDT_DECIMAL)}`;
+    return `Contract Balance:\nDAI = ${normalise(DAI_BAL, DAI_DECIMAL)}\nUSDC = ${normalise(USDC_BAL, USDC_DECIMAL)}\nUSDT = ${normalise(USDT_BAL, USDT_DECIMAL)}`;
 }
 
 module.exports = router;
