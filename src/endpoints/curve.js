@@ -4,7 +4,7 @@ const bodyParser = require('body-parser');
 const jsonParser = bodyParser.json();
 
 const Web3 = require('web3');
-const CurveLendingABIAddress = "0x0b0Dc405942314dB54414e6d6D23d913ECCb8321"; // TBC
+const CurveLendingABIAddress = "0x42966AdCa423beFA6B7a02521796Ac1b42e55c6e"; // TBC
 
 const fs = require('fs');
 const curveContract = JSON.parse(fs.readFileSync('src/contracts/CurveLending.json', 'utf8'));

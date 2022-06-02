@@ -8,7 +8,8 @@ const { loadDB, insertDocument } = require('../mongoDB');
 
 const convexAPYAPI = 'https://www.convexfinance.com/api/curve-apys';
 
-cron.schedule('0 0 * * *', async () => {
+// Polls at 00:01 every day
+cron.schedule('1 0 * * *', async () => {
     const apys = await axios
         .get(convexAPYAPI)
         .then(res => {;

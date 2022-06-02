@@ -1,4 +1,6 @@
 const MongoClient = require('mongodb').MongoClient;
+const startOfToday = require('date-fns/startOfToday');
+const zonedTimeToUtc = require('date-fns-tz/zonedTimeToUtc');
 
 const url = 'mongodb://127.0.0.1:27017';
 const baseDB = 'quirk-moonlight';
@@ -22,7 +24,26 @@ const loadDB = async () => {
     return myDB;
 }
 
-const findByUserID = async (_db, collection, userId) => {
+const findAll = async (_db, collection) => {
+    const dbCollection = _db.collection(collection);
+
+    return(await dbCollection.find({}).sort({"date": 1}).toArray());
+};
+
+const findToday = async(_db, collection) => {
+    const dbCollection = _db.collection(collection);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const boundary = zonedTimeToUtc(today, 'UTC');
+    console.log("Time Boundary:", boundary.toDateString(), boundary.toTimeString(), boundary);
+
+    return(await dbCollection.find(
+        {
+            "date": {$gte: boundary}
+        }).toArray());
+};
+
+const findByUserID = async (_db, collection, user) => {
     const dbCollection = _db.collection(collection);
 
     return(await dbCollection.find({ user }).toArray());
@@ -110,6 +131,10 @@ const aggregate = (obj) => {
 const insertDocument = async (_db, collection, document) => {
     const dbCollection = _db.collection(collection);
 
+    document.date = new Date();
+
+    console.log(document);
+
     dbCollection.insertOne(document, (err, result) => {
         if (err) {
             return console.log(`Error inserting document: ${document} into collection ${collection}`, err);
@@ -117,9 +142,16 @@ const insertDocument = async (_db, collection, document) => {
     })
 };
 
+const updateDocument = async (_db, collection, user, document) => {
+    document.date = new Date();
+    const dbCollection = _db.collection(collection);
+
+    await dbCollection.replaceOne({"_id": document._id}, document);
+};
+
 const closeDB = async (_db) => {
     await _db.close();
     console.log('Connection closed with MongoDB');
 };
 
-module.exports = { loadDB, findByUserID, findUserIDBalance, findTotals, findUserProportions, insertDocument, closeDB };
+module.exports = { loadDB, findByUserID, findUserIDBalance, findTotals, findUserProportions, insertDocument, closeDB, findAll, findToday, updateDocument };
