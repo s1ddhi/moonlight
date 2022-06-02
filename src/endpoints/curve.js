@@ -14,6 +14,7 @@ const CurveLendingContract = new web3.eth.Contract(curveContract.abi, CurveLendi
 
 const { loadDB, findByUserID, findUserIDBalance, insertDocument, closeDB } = require('../mongoDB');
 const req = require('express/lib/request');
+const { init } = require('express/lib/application');
 
 const LEDGER_COLLECTION = 'ledger';
 const WITHDRAW_TYPE = 'withdraw';
@@ -22,29 +23,31 @@ const DEPOSIT_TYPE = 'deposit';
 router.post('/withdraw', jsonParser, async (req, res) => {
     const accounts = await web3.eth.getAccounts();
 
-    if (!req.body.user || !req.body.requestedWithdrawal) {
+    if (!req.body.user || !req.body.requestedWithdrawalLP) {
         res.status(400).send("Missing body attributes");
         return;
     }
 
     const user = req.body.user;
-    const requestedWithdrawal = req.body.requestedWithdrawal;
+    const requestedWithdrawalLP = req.body.requestedWithdrawalLP;
+
+    const intialAssetBal = await getContractBalance();
 
     const loadedDb = await loadDB();
-    const aggregatedBalance = await findUserIDBalance(loadedDb, LEDGER_COLLECTION, user, DEPOSIT_TYPE);
 
-    if (aggregatedBalance < requestedWithdrawal) {
-        res.statusCode = 400;
-        res.send(`There is insufficient balance for user ${user}`);
-        return;
-    };
+    // TODO change to check LP balance of `userBalances`
+    // const aggregatedBalance = await findUserIDBalance(loadedDb, LEDGER_COLLECTION, user, DEPOSIT_TYPE);
 
-    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument(user, requestedWithdrawal, WITHDRAW_TYPE)); // TODO actually store amount of DAI, USDC, USDT received
+    // if (aggregatedBalance < requestedWithdrawalLP) {
+    //     res.statusCode = 400;
+    //     res.send(`There is insufficient balance for user ${user}`);
+    //     return;
+    // };
 
-    console.log(`Withdrawing ${requestedWithdrawal} from user ${user}`)
+    console.log(`Withdrawing ${requestedWithdrawalLP} from user ${user}`)
 
     await CurveLendingContract.methods
-    .oneShotWithdraw(unnormalise(requestedWithdrawal, ERC20_DECIMAL))
+    .oneShotWithdraw(unnormalise(requestedWithdrawalLP, ERC20_DECIMAL))
     .send({ from: accounts[0], gas: 1e7 }, function (err, _) {
         if (err) {
             console.log("An error occured in oneShotLendAll", err)
@@ -52,28 +55,34 @@ router.post('/withdraw', jsonParser, async (req, res) => {
         }
     });
 
-    const stakedConvexLPBal = await CurveLendingContract.methods
-        .getStakedConvexLPBalance()
-        .call(function (err, res) {
-            if (err) {
-                console.log("An error occured", err)
-                return
-            }
-        return res;
-        });
+    const finalAssetBal = await getContractBalance();
+    const realisedAssetBal = findAssetDifference(intialAssetBal, finalAssetBal);
 
-    res.send(`Staked Convex LP Balance: ${normalise(stakedConvexLPBal, ERC20_DECIMAL)} <br>${await getContractBalance()}</br>`);
+    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument(user, realisedAssetBal, requestedWithdrawalLP, WITHDRAW_TYPE)); // TODO actually store amount of DAI, USDC, USDT received
+
+    res.send({
+        user,
+        requestedWithdrawalLP,
+        realisedAssetBal
+    });
 });
 
-const ledgerDocument = (user, amount, type) => {
+const findAssetDifference = (initial, final) => {
+    return({
+        dai: final.dai.sub(initial.dai).toNumber(),
+        usdc: final.usdc.sub(initial.usdc).toNumber(),
+        usdt: final.usdt.sub(initial.usdc).toNumber()
+    });
+};
+
+const ledgerDocument = (user, amount, lpAmount, type) => {
     return {
         user,
         amount,
-        type,
-        date: new Date()
+        lpAmount,
+        type
     };
 };
-
 
 router.post('/deposit', jsonParser, async (req, res) => {
     const accounts = await web3.eth.getAccounts();
@@ -88,10 +97,18 @@ router.post('/deposit', jsonParser, async (req, res) => {
 
     const loadedDb = await loadDB();
 
-    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument(user, requestedDeposit, DEPOSIT_TYPE));
+    // TODO Check with simulation which value actually increases
+    const initalStakedConvexLPBal = await CurveLendingContract.methods
+        .getStakedConvexLPBalance()
+        .call(function (err, res) {
+            if (err) {
+                console.log("An error occured", err)
+                return
+            }
+        return res;
+        });
 
-    console.log(`Depositing ${requestedDeposit} from user ${user}`);
-    console.log(normalise(requestedDeposit.dai, DAI_DECIMAL).toString(), normalise(requestedDeposit.usdc, USDC_DECIMAL).toString(), normalise(requestedDeposit.usdt, USDT_DECIMAL).toString());
+    console.log(`Depositing ${JSON.stringify(requestedDeposit)} from user ${user}`);
 
     await CurveLendingContract.methods
         .oneShotLend(unnormalise(requestedDeposit.dai, DAI_DECIMAL), unnormalise(requestedDeposit.usdc, USDC_DECIMAL), unnormalise(requestedDeposit.usdt, USDT_DECIMAL))
@@ -102,7 +119,7 @@ router.post('/deposit', jsonParser, async (req, res) => {
             }
         });
 
-    const stakedConvexLPBal = await CurveLendingContract.methods
+    const finalStakedConvexLPBal = await CurveLendingContract.methods
         .getStakedConvexLPBalance()
         .call(function (err, res) {
             if (err) {
@@ -112,7 +129,16 @@ router.post('/deposit', jsonParser, async (req, res) => {
         return res;
         });
 
-    res.send(`Staked Convex LP Balance: ${normalise(stakedConvexLPBal, ERC20_DECIMAL)} \n\n${await getContractBalance()}`);
+    const stakedConvexLPBalDifference = web3.utils.toBN(finalStakedConvexLPBal).sub(web3.utils.toBN(initalStakedConvexLPBal));
+
+    // TODO check against logs of deposit, find proportion and assign LP according to proportion (e.g. 1000 of each stable coin if 1/10 if there was a total of each 10000 stablecoins deposited at once)
+
+    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument(user, requestedDeposit, normalise(stakedConvexLPBalDifference, ERC20_DECIMAL).toNumber(), DEPOSIT_TYPE));
+
+    res.send({
+        user,
+        requestedDeposit,
+        convexLPReceived: normalise(stakedConvexLPBalDifference, ERC20_DECIMAL).toNumber()})
 });
 
 const IERC20ABI = JSON.parse(fs.readFileSync('src/contracts/IERC20.json', 'utf8'));
@@ -175,7 +201,11 @@ const unnormalise = (normalisedAmount, assetDecimal) => {
 };
 
 const normalise = (unnormalisedAmount, assetDecimal) => {
-    return web3.utils.toBN(unnormalisedAmount).div(web3.utils.toBN(10).pow(web3.utils.toBN(assetDecimal)));
+    if (!web3.utils.isBN(unnormalisedAmount)) {
+        unnormalisedAmount = web3.utils.toBN(unnormalisedAmount);
+    }
+
+    return unnormalisedAmount.div(web3.utils.toBN(10).pow(web3.utils.toBN(assetDecimal)));
 };
 
 const getContractBalance = async () => {
@@ -203,7 +233,13 @@ const getContractBalance = async () => {
         return res;
     });
 
-    return `Contract Balance:\nDAI = ${normalise(DAI_BAL, DAI_DECIMAL)}\nUSDC = ${normalise(USDC_BAL, USDC_DECIMAL)}\nUSDT = ${normalise(USDT_BAL, USDT_DECIMAL)}`;
+    console.log(`Contract Balance:\nDAI = ${normalise(DAI_BAL, DAI_DECIMAL)}\nUSDC = ${normalise(USDC_BAL, USDC_DECIMAL)}\nUSDT = ${normalise(USDT_BAL, USDT_DECIMAL)}`);
+
+    return({
+        dai: normalise(DAI_BAL, DAI_DECIMAL),
+        usdc: normalise(USDC_BAL, USDC_DECIMAL),
+        usdt: normalise(USDT_BAL, USDT_DECIMAL)
+    });
 }
 
 module.exports = router;
