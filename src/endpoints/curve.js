@@ -46,7 +46,7 @@ const oneShotWithdraw = async (requestedWithdrawalLP) => {
     });
 };
 
-// TODO Won't actually withdraw but add request to log - ensure functionality works as expected
+// TODO check balance sufficiency - against current balance
 router.post('/withdrawRequest', jsonParser, async (req, res) => {
     if (!req.body.user || !req.body.requestedWithdrawalLP) {
         res.status(400).send("Missing body attributes");
@@ -84,7 +84,6 @@ const ledgerDocument = (details, type) => {
     return doc;
 };
 
-// TODO check available balance
 const oneShotDeposit = async (requestedDeposit) => {
     const accounts = await web3.eth.getAccounts();
 
