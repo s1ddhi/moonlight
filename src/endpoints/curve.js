@@ -13,23 +13,13 @@ const web3 = new Web3("http://localhost:8545");
 const CurveLendingContract = new web3.eth.Contract(curveContract.abi, CurveLendingABIAddress);
 
 const { loadDB, findByUserID, findUserIDBalance, insertDocument, closeDB } = require('../mongoDB');
-const req = require('express/lib/request');
-const { init } = require('express/lib/application');
 
 const LEDGER_COLLECTION = 'ledger';
 const WITHDRAW_TYPE = 'withdraw';
 const DEPOSIT_TYPE = 'deposit';
 
-router.post('/oneShotWithdraw', jsonParser, async (req, res) => {
+const oneShotWithdraw = async (requestedWithdrawalLP) => {
     const accounts = await web3.eth.getAccounts();
-
-    if (!req.body.user || !req.body.requestedWithdrawalLP) {
-        res.status(400).send("Missing body attributes");
-        return;
-    }
-
-    const user = req.body.user;
-    const requestedWithdrawalLP = req.body.requestedWithdrawalLP;
 
     const intialAssetBal = await getContractBalance();
 
@@ -44,7 +34,7 @@ router.post('/oneShotWithdraw', jsonParser, async (req, res) => {
     //     return;
     // };
 
-    console.log(`Withdrawing ${requestedWithdrawalLP} from user ${user}`)
+    console.log(`Batched withdrawing ${requestedWithdrawalLP}`)
 
     await CurveLendingContract.methods
     .oneShotWithdraw(unnormalise(requestedWithdrawalLP, ERC20_DECIMAL))
@@ -58,12 +48,11 @@ router.post('/oneShotWithdraw', jsonParser, async (req, res) => {
     const finalAssetBal = await getContractBalance();
     const realisedAssetBal = findAssetDifference(intialAssetBal, finalAssetBal);
 
-    res.send({
-        user,
+    return({
         requestedWithdrawalLP,
         realisedAssetBal
     });
-});
+};
 
 // TODO Won't actually withdraw but add request to log - ensure functionality works as expected
 router.post('/withdraw', jsonParser, async (req, res) => {
@@ -130,18 +119,8 @@ const ledgerDocument = (user, amount, lpAmount, type) => {
     };
 };
 
-router.post('oneShotDeposit', jsonParser, async (req, res) => {
+const oneShotDeposit = async (requestedDeposit) => {
     const accounts = await web3.eth.getAccounts();
-
-    if (!req.body.user || !req.body.requestedDeposit) {
-        res.status(400).send("Missing body attributes");
-        return;
-    }
-
-    const user = req.body.user;
-    const requestedDeposit = req.body.requestedDeposit;
-
-    const loadedDb = await loadDB();
 
     // TODO Check with simulation which value actually increases
     const initalStakedConvexLPBal = await CurveLendingContract.methods
@@ -154,7 +133,7 @@ router.post('oneShotDeposit', jsonParser, async (req, res) => {
         return res;
         });
 
-    console.log(`Depositing ${JSON.stringify(requestedDeposit)} from user ${user}`);
+    console.log(`Batched depositing ${JSON.stringify(requestedDeposit)}`);
 
     await CurveLendingContract.methods
         .oneShotLend(unnormalise(requestedDeposit.dai, DAI_DECIMAL), unnormalise(requestedDeposit.usdc, USDC_DECIMAL), unnormalise(requestedDeposit.usdt, USDT_DECIMAL))
@@ -177,11 +156,10 @@ router.post('oneShotDeposit', jsonParser, async (req, res) => {
 
     const stakedConvexLPBalDifference = web3.utils.toBN(finalStakedConvexLPBal).sub(web3.utils.toBN(initalStakedConvexLPBal));
 
-    res.send({
-        user,
+    return({
         requestedDeposit,
-        convexLPReceived: normalise(stakedConvexLPBalDifference, ERC20_DECIMAL).toNumber()})
-});
+        convexLPReceived: normalise(stakedConvexLPBalDifference, ERC20_DECIMAL).toNumber()});
+};
 
 // TODO Won't actually deposit but add request to log - ensure functionality works as expected
 router.post('/deposit', jsonParser, async (req, res) => {
@@ -342,4 +320,4 @@ const getContractBalance = async () => {
     });
 }
 
-module.exports = router;
+module.exports = {router, oneShotDeposit, oneShotWithdraw};

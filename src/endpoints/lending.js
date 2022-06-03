@@ -4,7 +4,7 @@ const port = 3000;
 const bodyParser = require('body-parser');
 const jsonParser = bodyParser.json();
 
-const curve = require('./curve')
+const {router: curve, oneShotDeposit, oneShotWithdraw} = require('./curve')
 const { loadDB, findByUserID, findTotals, findUserProportions, findUserIDBalance, insertDocument, findAll, findToday, updateDocument } = require('../mongoDB');
 
 const axios = require('axios');
@@ -124,12 +124,12 @@ app.get('/updateWithTodayActivity', async (req, res) => {
     console.log("userDeposits", userDeposits);
     console.log("totalDeposits\n\n", daiDeposit, usdcDeposit, usdtDeposit);
 
-    // TODO call oneShotDeposit
-    // TODO proportion out LP received
+    const depositResult = await oneShotDeposit({dai: daiDeposit, usdc: usdcDeposit, usdt: usdtDeposit});
+    await proportionAndUpdateLP(loadedDb, userDeposits, daiDeposit, depositResult);
 
     // TODO handle insufficient balance withdrawal
     for (const entry of withdraws) {
-        const user = findByUserID(loadedDb, 'userBalances', entry.user)[0];
+        const user = (await findByUserID(loadedDb, 'userBalances', entry.user))[0];
 
         daiWithdraw += entry.amount.dai;
         usdcWithdraw += entry.amount.usdc;
@@ -148,7 +148,19 @@ app.get('/updateWithTodayActivity', async (req, res) => {
 
     // TODO call oneShotWithdraw
     // TODO proportion out assets received
+    res.send("Completed batched deposit and withdraw as well as updating new balances of the day")
 });
+
+const proportionAndUpdateLP = async (_db, userDeposits, totalDaiDeposits, depositResult) => {
+    for (const userKey in userDeposits) {
+        const proportion = userDeposits[userKey].dai / totalDaiDeposits; // Assumed that amount deposit for each stablecoins are equivalent
+        const lpReceived = depositResult.convexLPReceived * proportion;
+        const balance = (await findByUserID(_db, 'userBalances', userKey))[0];
+        balance.baseDeposit = updateBaseDeposit(balance.baseDeposit, lpReceived, 0, 0, 0);
+
+        await updateDocument(_db, 'userBalances', balance);
+    };
+};
 
 const updateBaseDeposit = (current, lp, dai, usdc, usdt) => {
     current.lp += lp;
