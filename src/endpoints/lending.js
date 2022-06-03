@@ -59,7 +59,7 @@ app.get('/updateUserBalances', async (req, res) => {
     const users = await findAll(loadedDb, 'userBalances');
 
     for (const userEntry of users) {
-        const newLP = calculateFinalAmount(userEntry.baseDeposit.lp, userEntry.accruedInterest.baseLP, apysToday.baseApy, dayInYears);
+        const newLP = calculateFinalAmount(userEntry.baseDeposit.lp, userEntry.accruedInterest.lp, apysToday.baseApy, dayInYears);
         const newCRV = calculateFinalAmount(userEntry.baseDeposit.lp, userEntry.accruedInterest.crv, apysToday.crvApy, dayInYears);
         userEntry.accruedInterest = {baseLP: newLP, crv: newCRV};
         await updateDocument(loadedDb, 'userBalances', userEntry);
@@ -72,10 +72,8 @@ const calculateFinalAmount = (initialCapital, currentBalance, apy, timeInYears) 
 };
 
 // TODO... - move to cron job
+// Assumes that all stablecoins are funded into contract already
 app.get('/updateWithTodayActivity', async (req, res) => {
-    // Go through logs and updates balances of users (baseDeposit)
-    // Triggers withdrawal request and deposit requests (aggregated)
-    // Deduct 2% off from interest gained (keep track of interest pulling out so can transfer 2% to treasury)
     const loadedDb = await loadDB();
     const todaysActivity = await findToday(loadedDb, 'ledger');
 
@@ -120,6 +118,7 @@ app.get('/updateWithTodayActivity', async (req, res) => {
     await proportionAndUpdateLPDeposit(loadedDb, userDeposits, daiDeposit, depositResult);
 
     // TODO handle insufficient balance withdrawal
+    // Deduct 2% off from interest gained (keep track of interest pulling out so can transfer 2% to treasury)
     for (const entry of withdraws) {
         const user = (await findByUserID(loadedDb, 'userBalances', entry.user))[0];
 
@@ -135,6 +134,9 @@ app.get('/updateWithTodayActivity', async (req, res) => {
 
     const withdrawalResult = await oneShotWithdraw(lpWithdraw);
     await proportionAndUpdateWithdraw(loadedDb, userWithdrawals, lpWithdraw, withdrawalResult);
+
+    // TODO - will transfer stablecoins to user account
+    console.log("[Transfer funds to each user]")
 
     res.send("Completed batched deposit and withdraw as well as updating new balances of the day")
 });

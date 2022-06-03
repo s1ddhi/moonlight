@@ -18,19 +18,13 @@ const LEDGER_COLLECTION = 'ledger';
 const WITHDRAW_TYPE = 'withdraw';
 const DEPOSIT_TYPE = 'deposit';
 
+// TODO TEST METHODS BELOW THAT IT LOGS TO LEDGER AND COMBINE WITH THE CRON JOB TO CHECK LEDGER GETS POLLED PROPERLY
+
+// TODO check balance available to withdraw
 const oneShotWithdraw = async (requestedWithdrawalLP) => {
     const accounts = await web3.eth.getAccounts();
 
     const intialAssetBal = await getContractBalance();
-
-    // TODO change to check LP balance of `userBalances`
-    // const aggregatedBalance = await findUserIDBalance(loadedDb, LEDGER_COLLECTION, user, DEPOSIT_TYPE);
-
-    // if (aggregatedBalance < requestedWithdrawalLP) {
-    //     res.statusCode = 400;
-    //     res.send(`There is insufficient balance for user ${user}`);
-    //     return;
-    // };
 
     console.log(`Batched withdrawing ${requestedWithdrawalLP}`)
 
@@ -53,9 +47,7 @@ const oneShotWithdraw = async (requestedWithdrawalLP) => {
 };
 
 // TODO Won't actually withdraw but add request to log - ensure functionality works as expected
-router.post('/withdraw', jsonParser, async (req, res) => {
-    const accounts = await web3.eth.getAccounts();
-
+router.post('/withdrawRequest', jsonParser, async (req, res) => {
     if (!req.body.user || !req.body.requestedWithdrawalLP) {
         res.status(400).send("Missing body attributes");
         return;
@@ -64,39 +56,13 @@ router.post('/withdraw', jsonParser, async (req, res) => {
     const user = req.body.user;
     const requestedWithdrawalLP = req.body.requestedWithdrawalLP;
 
-    const intialAssetBal = await getContractBalance();
-
     const loadedDb = await loadDB();
 
-    // TODO change to check LP balance of `userBalances`
-    // const aggregatedBalance = await findUserIDBalance(loadedDb, LEDGER_COLLECTION, user, DEPOSIT_TYPE);
-
-    // if (aggregatedBalance < requestedWithdrawalLP) {
-    //     res.statusCode = 400;
-    //     res.send(`There is insufficient balance for user ${user}`);
-    //     return;
-    // };
-
-    console.log(`Withdrawing ${requestedWithdrawalLP} from user ${user}`)
-
-    await CurveLendingContract.methods
-    .oneShotWithdraw(unnormalise(requestedWithdrawalLP, ERC20_DECIMAL))
-    .send({ from: accounts[0], gas: 1e7 }, function (err, _) {
-        if (err) {
-            console.log("An error occured in oneShotLendAll", err)
-            return
-        }
-    });
-
-    const finalAssetBal = await getContractBalance();
-    const realisedAssetBal = findAssetDifference(intialAssetBal, finalAssetBal);
-
-    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument(user, realisedAssetBal, requestedWithdrawalLP, WITHDRAW_TYPE)); // TODO actually store amount of DAI, USDC, USDT received
+    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument({ user, lpAmount: requestedWithdrawalLP }, WITHDRAW_TYPE)); // TODO actually store amount of DAI, USDC, USDT received
 
     res.send({
         user,
-        requestedWithdrawalLP,
-        realisedAssetBal
+        requestedWithdrawalLP
     });
 });
 
@@ -108,15 +74,17 @@ const findAssetDifference = (initial, final) => {
     });
 };
 
-const ledgerDocument = (user, amount, lpAmount, type) => {
-    return {
-        user,
-        amount,
-        lpAmount,
-        type
-    };
+const ledgerDocument = (details, type) => {
+    const doc = { user: details.user, type }
+    if (type == 'deposit') {
+        doc.amount = details.amount;
+    } else {
+        doc.lpAmount = details.lpAmount;
+    }
+    return doc;
 };
 
+// TODO check available balance
 const oneShotDeposit = async (requestedDeposit) => {
     const accounts = await web3.eth.getAccounts();
 
@@ -159,10 +127,8 @@ const oneShotDeposit = async (requestedDeposit) => {
         convexLPReceived: normalise(stakedConvexLPBalDifference, ERC20_DECIMAL).toNumber()});
 };
 
-// TODO Won't actually deposit but add request to log - ensure functionality works as expected
-router.post('/deposit', jsonParser, async (req, res) => {
-    const accounts = await web3.eth.getAccounts();
-
+// TODO Won't actually deposit but add request to ledger - ensure functionality works as expected
+router.post('/depositRequest', jsonParser, async (req, res) => {
     if (!req.body.user || !req.body.requestedDeposit) {
         res.status(400).send("Missing body attributes");
         return;
@@ -173,48 +139,12 @@ router.post('/deposit', jsonParser, async (req, res) => {
 
     const loadedDb = await loadDB();
 
-    // TODO Check with simulation which value actually increases
-    const initalStakedConvexLPBal = await CurveLendingContract.methods
-        .getStakedConvexLPBalance()
-        .call(function (err, res) {
-            if (err) {
-                console.log("An error occured", err)
-                return
-            }
-        return res;
-        });
-
-    console.log(`Depositing ${JSON.stringify(requestedDeposit)} from user ${user}`);
-
-    await CurveLendingContract.methods
-        .oneShotLend(unnormalise(requestedDeposit.dai, DAI_DECIMAL), unnormalise(requestedDeposit.usdc, USDC_DECIMAL), unnormalise(requestedDeposit.usdt, USDT_DECIMAL))
-        .send({ from: accounts[0], gas: 1e7 }, function (err, _) {
-            if (err) {
-                console.log("An error occured in oneShotLendAll", err)
-                return
-            }
-        });
-
-    const finalStakedConvexLPBal = await CurveLendingContract.methods
-        .getStakedConvexLPBalance()
-        .call(function (err, res) {
-            if (err) {
-                console.log("An error occured", err)
-                return
-            }
-        return res;
-        });
-
-    const stakedConvexLPBalDifference = web3.utils.toBN(finalStakedConvexLPBal).sub(web3.utils.toBN(initalStakedConvexLPBal));
-
-    // TODO check against logs of deposit, find proportion and assign LP according to proportion (e.g. 1000 of each stable coin if 1/10 if there was a total of each 10000 stablecoins deposited at once)
-
-    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument(user, requestedDeposit, normalise(stakedConvexLPBalDifference, ERC20_DECIMAL).toNumber(), DEPOSIT_TYPE));
+    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument({ user, amount: requestedDeposit }, DEPOSIT_TYPE));
 
     res.send({
         user,
-        requestedDeposit,
-        convexLPReceived: normalise(stakedConvexLPBalDifference, ERC20_DECIMAL).toNumber()})
+        requestedDeposit
+    })
 });
 
 const IERC20ABI = JSON.parse(fs.readFileSync('src/contracts/IERC20.json', 'utf8'));
@@ -317,5 +247,113 @@ const getContractBalance = async () => {
         usdt: normalise(USDT_BAL, USDT_DECIMAL)
     });
 }
+
+// ---------- TESTING METHODS ----------
+
+router.post('/withdraw', jsonParser, async (req, res) => {
+    const accounts = await web3.eth.getAccounts();
+
+    if (!req.body.user || !req.body.requestedWithdrawalLP) {
+        res.status(400).send("Missing body attributes");
+        return;
+    }
+
+    const user = req.body.user;
+    const requestedWithdrawalLP = req.body.requestedWithdrawalLP;
+
+    const intialAssetBal = await getContractBalance();
+
+    const loadedDb = await loadDB();
+
+    // TODO change to check LP balance of `userBalances`
+    // const aggregatedBalance = await findUserIDBalance(loadedDb, LEDGER_COLLECTION, user, DEPOSIT_TYPE);
+
+    // if (aggregatedBalance < requestedWithdrawalLP) {
+    //     res.statusCode = 400;
+    //     res.send(`There is insufficient balance for user ${user}`);
+    //     return;
+    // };
+
+    console.log(`Withdrawing ${requestedWithdrawalLP} from user ${user}`)
+
+    await CurveLendingContract.methods
+    .oneShotWithdraw(unnormalise(requestedWithdrawalLP, ERC20_DECIMAL))
+    .send({ from: accounts[0], gas: 1e7 }, function (err, _) {
+        if (err) {
+            console.log("An error occured in oneShotLendAll", err)
+            return
+        }
+    });
+
+    const finalAssetBal = await getContractBalance();
+    const realisedAssetBal = findAssetDifference(intialAssetBal, finalAssetBal);
+
+    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument({ user, lpAmount: requestedWithdrawalLP }, WITHDRAW_TYPE)); // TODO actually store amount of DAI, USDC, USDT received
+
+    res.send({
+        user,
+        requestedWithdrawalLP,
+        realisedAssetBal
+    });
+});
+
+router.post('/deposit', jsonParser, async (req, res) => {
+    const accounts = await web3.eth.getAccounts();
+
+    if (!req.body.user || !req.body.requestedDeposit) {
+        res.status(400).send("Missing body attributes");
+        return;
+    }
+
+    const user = req.body.user;
+    const requestedDeposit = req.body.requestedDeposit;
+
+    const loadedDb = await loadDB();
+
+    // TODO Check with simulation which value actually increases
+    const initalStakedConvexLPBal = await CurveLendingContract.methods
+        .getStakedConvexLPBalance()
+        .call(function (err, res) {
+            if (err) {
+                console.log("An error occured", err)
+                return
+            }
+        return res;
+        });
+
+    console.log(`Depositing ${JSON.stringify(requestedDeposit)} from user ${user}`);
+
+    await CurveLendingContract.methods
+        .oneShotLend(unnormalise(requestedDeposit.dai, DAI_DECIMAL), unnormalise(requestedDeposit.usdc, USDC_DECIMAL), unnormalise(requestedDeposit.usdt, USDT_DECIMAL))
+        .send({ from: accounts[0], gas: 1e7 }, function (err, _) {
+            if (err) {
+                console.log("An error occured in oneShotLendAll", err)
+                return
+            }
+        });
+
+    const finalStakedConvexLPBal = await CurveLendingContract.methods
+        .getStakedConvexLPBalance()
+        .call(function (err, res) {
+            if (err) {
+                console.log("An error occured", err)
+                return
+            }
+        return res;
+        });
+
+    const stakedConvexLPBalDifference = web3.utils.toBN(finalStakedConvexLPBal).sub(web3.utils.toBN(initalStakedConvexLPBal));
+
+    // TODO check against logs of deposit, find proportion and assign LP according to proportion (e.g. 1000 of each stable coin if 1/10 if there was a total of each 10000 stablecoins deposited at once)
+
+    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument({ user, amount: requestedDeposit }, DEPOSIT_TYPE));
+
+    res.send({
+        user,
+        requestedDeposit,
+        convexLPReceived: normalise(stakedConvexLPBalDifference, ERC20_DECIMAL).toNumber()})
+});
+
+// ---------- TESTING METHODS ----------
 
 module.exports = {router, oneShotDeposit, oneShotWithdraw};

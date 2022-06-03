@@ -1,6 +1,7 @@
 const MongoClient = require('mongodb').MongoClient;
 const startOfToday = require('date-fns/startOfToday');
 const zonedTimeToUtc = require('date-fns-tz/zonedTimeToUtc');
+const res = require('express/lib/response');
 
 const url = 'mongodb://127.0.0.1:27017';
 const baseDB = 'quirk-moonlight';
@@ -134,7 +135,7 @@ const insertDocument = async (_db, collection, document) => {
 
     console.log(`Inserting ${document.user} into ${collection}`);
 
-    dbCollection.insertOne(document, (err, result) => {
+    await dbCollection.insertOne(document, (err, result) => {
         if (err) {
             return console.log(`Error inserting document: ${document} into collection ${collection}`, err);
         }
