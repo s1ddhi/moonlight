@@ -132,7 +132,7 @@ const insertDocument = async (_db, collection, document) => {
 
     document.date = new Date();
 
-    console.log(`Inserting ${JSON.stringify(document)} into ${collection}`);
+    console.log(`Inserting ${document.user} into ${collection}`);
 
     dbCollection.insertOne(document, (err, result) => {
         if (err) {
@@ -145,7 +145,7 @@ const updateDocument = async (_db, collection, document) => {
     document.date = new Date();
     const dbCollection = _db.collection(collection);
 
-    console.log(`Updating ${JSON.stringify(document)} into ${collection}`);
+    console.log(`Updating ${document.user} in ${collection}`);
 
     await dbCollection.replaceOne({"_id": document._id}, document);
 };

@@ -85,26 +85,21 @@ app.get('/updateWithTodayActivity', async (req, res) => {
     let usdtDeposit = 0;
 
     const withdraws = todaysActivity.filter(entry => entry.type == 'withdraw');
-    let daiWithdraw = 0;
-    let usdcWithdraw = 0;
-    let usdtWithdraw = 0;
+    let lpWithdraw = 0;
 
     // Track user proportion of today's deposit and assign LP received accordingly
     const userDeposits = {};
     const userWithdrawals = {};
 
     for (const entry of deposits) {
-        console.log(entry.user);
         let user = (await findByUserID(loadedDb, 'userBalances', entry.user))[0];
 
         if (!user) {
-            console.log("New user", entry.user);
             const baseDeposit = buildBaseDeposit(0, entry.amount.dai, entry.amount.usdc, entry.amount.usdt);
             const accruedInterest = buildAccruedInterest(0, 0);
             user = userBalanceDocument(entry.user, baseDeposit, accruedInterest);
             await insertDocument(loadedDb, 'userBalances', user);
         } else {
-            console.log("Existing user", entry.user);
             user.baseDeposit = updateBaseDeposit(user.baseDeposit, 0, entry.amount.dai, entry.amount.usdc, entry.amount.usdt);
             await updateDocument(loadedDb, 'userBalances', user);
         }
@@ -121,41 +116,49 @@ app.get('/updateWithTodayActivity', async (req, res) => {
         }
     };
 
-    console.log("userDeposits", userDeposits);
-    console.log("totalDeposits\n\n", daiDeposit, usdcDeposit, usdtDeposit);
-
     const depositResult = await oneShotDeposit({dai: daiDeposit, usdc: usdcDeposit, usdt: usdtDeposit});
-    await proportionAndUpdateLP(loadedDb, userDeposits, daiDeposit, depositResult);
+    await proportionAndUpdateLPDeposit(loadedDb, userDeposits, daiDeposit, depositResult);
 
     // TODO handle insufficient balance withdrawal
     for (const entry of withdraws) {
         const user = (await findByUserID(loadedDb, 'userBalances', entry.user))[0];
 
-        daiWithdraw += entry.amount.dai;
-        usdcWithdraw += entry.amount.usdc;
-        usdtWithdraw += entry.amount.usdt;
+        lpWithdraw += entry.lpAmount;
 
-        // update user's own balance
+        // Update user's own balance
         if (!userWithdrawals[entry.user]) {
-            userWithdrawals[entry.user] = {dai: entry.amount.dai, usdc: entry.amount.usdc, usdt: entry.amount.usdt};
+            userWithdrawals[entry.user] = {lp: entry.lpAmount};
         } else {
-            userWithdrawals[entry.user] = {dai: userWithdrawals[entry.user].dai + entry.amount.dai, usdc: userWithdrawals[entry.user].usdc + entry.amount.usdc, usdt: userWithdrawals[entry.user].usdt + entry.amount.usdt};
+            userWithdrawals[entry.user] = {lp: userWithdrawals[entry.user].lp = entry.lpAmount};
         }
     };
 
-    // console.log("userWithdrawals", userWithdrawals);
-    // console.log("totalWithdrawals\n\n", daiWithdraw, usdcWithdraw, usdtWithdraw);
+    const withdrawalResult = await oneShotWithdraw(lpWithdraw);
+    await proportionAndUpdateWithdraw(loadedDb, userWithdrawals, lpWithdraw, withdrawalResult);
 
-    // TODO call oneShotWithdraw
-    // TODO proportion out assets received
     res.send("Completed batched deposit and withdraw as well as updating new balances of the day")
 });
 
-const proportionAndUpdateLP = async (_db, userDeposits, totalDaiDeposits, depositResult) => {
+const proportionAndUpdateWithdraw = async (_db, userWithdrawals, totalLPWithdrawals, withdrawalResult) => {
+    for (userKey in userWithdrawals) {
+        const proportion = userWithdrawals[userKey].lp / totalLPWithdrawals;
+        const balance = (await findByUserID(_db, 'userBalances', userKey))[0];
+
+        const daiReceived = withdrawalResult.realisedAssetBal.dai * proportion;
+        const usdcReceived = withdrawalResult.realisedAssetBal.usdc * proportion;
+        const usdtReceived = withdrawalResult.realisedAssetBal.usdt * proportion;
+        balance.baseDeposit = updateBaseDeposit(balance.baseDeposit, -userWithdrawals[userKey].lp, -daiReceived, -usdcReceived, -usdtReceived);
+
+        await updateDocument(_db, 'userBalances', balance);
+    };
+};
+
+const proportionAndUpdateLPDeposit = async (_db, userDeposits, totalDaiDeposits, depositResult) => {
     for (const userKey in userDeposits) {
         const proportion = userDeposits[userKey].dai / totalDaiDeposits; // Assumed that amount deposit for each stablecoins are equivalent
-        const lpReceived = depositResult.convexLPReceived * proportion;
         const balance = (await findByUserID(_db, 'userBalances', userKey))[0];
+
+        const lpReceived = depositResult.convexLPReceived * proportion;
         balance.baseDeposit = updateBaseDeposit(balance.baseDeposit, lpReceived, 0, 0, 0);
 
         await updateDocument(_db, 'userBalances', balance);

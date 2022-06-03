@@ -23,8 +23,6 @@ const oneShotWithdraw = async (requestedWithdrawalLP) => {
 
     const intialAssetBal = await getContractBalance();
 
-    const loadedDb = await loadDB();
-
     // TODO change to check LP balance of `userBalances`
     // const aggregatedBalance = await findUserIDBalance(loadedDb, LEDGER_COLLECTION, user, DEPOSIT_TYPE);
 
@@ -311,7 +309,7 @@ const getContractBalance = async () => {
         return res;
     });
 
-    console.log(`Contract Balance:\nDAI = ${normalise(DAI_BAL, DAI_DECIMAL)}\nUSDC = ${normalise(USDC_BAL, USDC_DECIMAL)}\nUSDT = ${normalise(USDT_BAL, USDT_DECIMAL)}`);
+    //console.log(`Contract Balance:\nDAI = ${normalise(DAI_BAL, DAI_DECIMAL)}\nUSDC = ${normalise(USDC_BAL, USDC_DECIMAL)}\nUSDT = ${normalise(USDT_BAL, USDT_DECIMAL)}`);
 
     return({
         dai: normalise(DAI_BAL, DAI_DECIMAL),
