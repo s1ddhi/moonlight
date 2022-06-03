@@ -35,7 +35,6 @@ const findToday = async(_db, collection) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const boundary = zonedTimeToUtc(today, 'UTC');
-    console.log("Time Boundary:", boundary.toDateString(), boundary.toTimeString(), boundary);
 
     return(await dbCollection.find(
         {
@@ -133,7 +132,7 @@ const insertDocument = async (_db, collection, document) => {
 
     document.date = new Date();
 
-    console.log(document);
+    console.log(`Inserting ${JSON.stringify(document)} into ${collection}`);
 
     dbCollection.insertOne(document, (err, result) => {
         if (err) {
@@ -142,9 +141,11 @@ const insertDocument = async (_db, collection, document) => {
     })
 };
 
-const updateDocument = async (_db, collection, user, document) => {
+const updateDocument = async (_db, collection, document) => {
     document.date = new Date();
     const dbCollection = _db.collection(collection);
+
+    console.log(`Updating ${JSON.stringify(document)} into ${collection}`);
 
     await dbCollection.replaceOne({"_id": document._id}, document);
 };
