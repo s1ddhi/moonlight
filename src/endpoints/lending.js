@@ -9,7 +9,7 @@ const { loadDB, findByUserID, findTotals, findUserProportions, findUserIDBalance
 
 const axios = require('axios');
 
-app.get('/', (req, res) => {
+app.get('/', (_, res) => {
     res.send('Hello World!');
 });
 
@@ -17,7 +17,7 @@ app.listen(port, () => {
     console.log(`App listening on port ${port}`);
 });
 
-app.get('/mongoTest', async (req, res) => {
+app.get('/mongoTest', async (_, res) => {
     const loadedDb = await loadDB();
     const userIDBalance = await findUserIDBalance(loadedDb, 'ledger', '0x1111111110', 'deposit');
     const totals = await findTotals(loadedDb, 'ledger', 'deposit');
@@ -26,14 +26,14 @@ app.get('/mongoTest', async (req, res) => {
     res.send(`userBal: ${JSON.stringify(userIDBalance)}\ntotals: ${JSON.stringify(totals)}\nproportions:${props}`);
 });
 
-app.get('/fetchSpotPrices', async (req, res) => {
+app.get('/fetchSpotPrices', async (_, res) => {
     console.log(await userBalanceAggregator('0x1111111111', 'usd'));
     res.send("done");
 });
 
 const convexAPYAPI = 'https://www.convexfinance.com/api/curve-apys';
 
-app.get('/getAPYs', jsonParser, async (req, res) => {
+app.get('/getAPYs', jsonParser, async (_, res) => {
     const apys = await axios
         .get(convexAPYAPI)
         .then(res => {;
@@ -53,7 +53,7 @@ const dayInYears = 1 / 365;
 
 // TODO... - move to cron job
 // Updates *existing* balances - will have to add balance of current day's activities as well
-app.get('/updateUserBalances', async (req, res) => {
+app.get('/updateUserBalances', async (_, res) => {
     const loadedDb = await loadDB();
     const apysToday = (await findToday(loadedDb, 'apys'))[0];
     if (!apysToday) {
@@ -78,7 +78,7 @@ const calculateFinalAmount = (initialCapital, currentBalance, apy, timeInYears) 
 
 // TODO... - move to cron job
 // Assumes that all stablecoins are funded into contract already
-app.get('/updateWithTodayActivity', async (req, res) => {
+app.get('/updateWithTodayActivity', async (_, res) => {
     const loadedDb = await loadDB();
     const todaysActivity = await findToday(loadedDb, 'ledger');
 
@@ -252,11 +252,23 @@ const userBalanceDocument = (user, baseDeposit, accruedInterest) => {
     }
 };
 
-// TODO...
-app.get('/informaticsAPI', async (req, res) => {
-    // Polls information from 'userBalances'
-    // Spot pricing to convert 3CRV and CRV pricing via oracle: https://api.coingecko.com/api/v3/simple/price?vs_currencies=usd&ids=dai,cdai,ydai,adai,ycdai,cydai,usdc,cusdc,yusdc,ausdc,ycusdc,cyusdc,usdt,yusdt,ausdt,ycusdt,cyusdt,tusd,ytusd,busd,ybusd,susd,asusd,pax,renbtc,wbtc,sbtc,hbtc,gusd,husd,usdk,usdn,linkusd,musd,rsv,tbtc,dusd,pbtc,bbtc,obtc,ibbtc,terrausd,stasis-eurs,ageur,seur,ethereum,seth,steth,ankreth,alchemix-eth,usdp,paxos-standard,link,slink,lp-3pool-curve,frax,frax-price-index,liquity-usd,sbtccrv,havven,pnetwork,reserve-rights-token,defidollar-dao,boringdao-[old],lido-dao,onx-finance,ankr,liquity,snxrenbpt,meta,aave,keep-network,dola-usd,frax-share,stafi,reth,alchemix-usd,fei-usd,alchemix,curve-dao-token,sushi,boringdao,ellipsis,binance-coin,tether-eurt,magic-internet-money,spell-token,threshold-network-token,jpyc,truegbp,jarvis-synthetic-british-pound,saud,cryptofranc,terra-krw,rkp3r,keep3rv1,usdm,unit-protocol-duck,neutrino-system-base-token,badger-dao,origin-protocol,origin-dollar,angle-protocol,pwrd-stablecoin,rai,lend-flare-dao-token,convex-finance,tether-gold,yearn-finance,rocket-pool-eth,wrapped-steth,tether,butterflydao,cad-coin,silo-finance,stake-dao,olympus,stargate-finance,sdcrv,sdangle,uniswap,usdd,convex-crv,dollar,bitcoin,chainlink,,interest-bearing-bitcoin,ptokens-btc,compound,binance-usd,nusd,huobi-btc,gemini-dollar,neutrino,reserve,defidollar,binance-wrapped-btc,boringdao-btc,staked-ether,cream-2,true-usd
-    // Deduct 2% from actual interest before showing (even if interest negative, deduct 2%)
+const TAKEHOME_PERCENT = 0.02;
+
+app.get('/userBalance', jsonParser, async (req, res) => {
+    if (!req.body.user || !req.body.currency) {
+        res.status(400).send("Missing body attributes");
+        return;
+    }
+
+    const userBalance = await userBalanceAggregator(req.body.user, req.body.currency);
+    console.log(userBalance);
+    res.send(augmentUserBalance(userBalance, TAKEHOME_PERCENT));
 });
+
+const augmentUserBalance = (userBalance, takehomePercentage) => {
+    const userReceivesPercent = 1 - takehomePercentage;
+    userBalance.accruedBalance *= userReceivesPercent;
+    return userBalance;
+}
 
 app.use('/curve', curve);
