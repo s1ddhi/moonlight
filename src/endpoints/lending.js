@@ -27,7 +27,7 @@ app.get('/mongoTest', async (req, res) => {
 });
 
 app.get('/fetchSpotPrices', async (req, res) => {
-    console.log(await userBalanceAggregator('0x1111111111'));
+    console.log(await userBalanceAggregator('0x1111111111', 'usd'));
     res.send("done");
 });
 
@@ -46,7 +46,7 @@ app.get('/getAPYs', jsonParser, async (req, res) => {
     const loadedDb = await loadDB();
     await insertDocument(loadedDb, 'apys', apys['3pool']);
     console.log('Polled APY from Convex');
-    res.send("Polled today's APY", apys['3pool']);
+    res.send(`Polled today's APY ${JSON.stringify(apys['3pool'])}`);
 })
 
 const dayInYears = 1 / 365;
@@ -146,7 +146,7 @@ app.get('/updateWithTodayActivity', async (req, res) => {
     res.send("Completed batched deposit and withdraw as well as updating new balances of the day")
 });
 
-const userBalanceAggregator = async (user) => {
+const userBalanceAggregator = async (user, currency) => {
     const loadedDb = await loadDB();
     const balance = (await findByUserID(loadedDb, 'userBalances', user))[0];
     const todaysActivity = await findToday(loadedDb, 'ledger');
@@ -164,28 +164,28 @@ const userBalanceAggregator = async (user) => {
         return acc + entry.lpAmount;
     }, 0)
 
-    prices = await getSpotPrice();
+    prices = await getSpotPrice(currency);
 
-    const currentBalance = (prices['lp-3pool-curve'].usd * balance.baseDeposit.lp);
-    const accruedBalance = (prices['lp-3pool-curve'].usd * balance.accruedInterest.baseLP) + (prices['curve-dao-token'].usd * balance.accruedInterest.crv);
+    const currentBalance = (prices['lp-3pool-curve'][currency] * balance.baseDeposit.lp);
+    const accruedBalance = (prices['lp-3pool-curve'][currency] * balance.accruedInterest.baseLP) + (prices['curve-dao-token'][currency] * balance.accruedInterest.crv);
 
-    const finalDepositBalance = (prices['dai'].usd * totalDeposits.dai) + (prices['usd-coin'].usd * totalDeposits.usdc) + (prices['tether'].usd * totalDeposits.usdt);
-    const finalWithdrawnBalance = prices['lp-3pool-curve'].usd * totalLPWithdrawn;
+    const finalDepositBalance = (prices['dai'][currency] * totalDeposits.dai) + (prices['usd-coin'][currency] * totalDeposits.usdc) + (prices['tether'][currency] * totalDeposits.usdt);
+    const finalWithdrawnBalance = prices['lp-3pool-curve'][currency] * totalLPWithdrawn;
 
     const baseDepositBalance = currentBalance + finalDepositBalance - finalWithdrawnBalance;
 
     return {
         baseDepositBalance,
         accruedBalance,
-        currency: 'usd'
+        currency
     };
 }
 
-const coingeckoAPI = 'https://api.coingecko.com/api/v3/simple/price?ids=dai%2Ctether%2Cusd-coin%2Clp-3pool-curve%2Cconvex-finance%2Ccurve-dao-token&vs_currencies=usd';
+const coingeckoAPI = 'https://api.coingecko.com/api/v3/simple/price?ids=dai%2Ctether%2Cusd-coin%2Clp-3pool-curve%2Cconvex-finance%2Ccurve-dao-token&vs_currencies=';
 
-const getSpotPrice = async () => {
+const getSpotPrice = async (currency) => {
     return await axios
-        .get(coingeckoAPI)
+        .get(coingeckoAPI + currency)
         .then(res => {;
             return res.data;
         })
