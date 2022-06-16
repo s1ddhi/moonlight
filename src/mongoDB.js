@@ -1,5 +1,4 @@
 const MongoClient = require('mongodb').MongoClient;
-const startOfToday = require('date-fns/startOfToday');
 const zonedTimeToUtc = require('date-fns-tz/zonedTimeToUtc');
 const res = require('express/lib/response');
 
@@ -133,7 +132,7 @@ const insertDocument = async (_db, collection, document) => {
 
     document.date = new Date();
 
-    console.log(`Inserting ${document.user} into ${collection}`);
+    console.log(`Inserting ${JSON.stringify(document)} into ${collection}`);
 
     await dbCollection.insertOne(document, (err, result) => {
         if (err) {

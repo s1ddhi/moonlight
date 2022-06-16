@@ -1,32 +1,50 @@
 const axios = require('axios');
+const res = require('express/lib/response');
+
+const isToday = require('date-fns/isToday');
+const zonedTimeToUtc = require('date-fns-tz/zonedTimeToUtc');
 
 const { loadDB, findByUserID, findTotals, findUserProportions, findUserIDBalance, insertDocument, findAll, findToday, updateDocument } = require('./mongoDB');
 
 const userBalanceAggregator = async (user, currency) => {
     const loadedDb = await loadDB();
     const balance = (await findByUserID(loadedDb, 'userBalances', user))[0];
-    const todaysActivity = await findToday(loadedDb, 'ledger');
 
-    const deposits = todaysActivity.filter(entry => entry.type == 'deposit' && entry.user == user);
-    const totalDeposits = deposits.reduce(function (acc, entry) {
-        acc.dai += entry.amount.dai;
-        acc.usdc += entry.amount.usdc;
-        acc.usdt += entry.amount.usdt;
-        return acc;
-    }, { dai: 0, usdc: 0, usdt: 0});
-
-    const withdraws = todaysActivity.filter(entry => entry.type == 'withdraw' && entry.user == user);
-    const totalLPWithdrawn = withdraws.reduce(function (acc, entry) {
-        return acc + entry.lpAmount;
-    }, 0)
+    if (!balance) {
+        return {};
+    }
 
     prices = await getSpotPrice(currency);
 
     const currentBalance = (prices['lp-3pool-curve'][currency] * balance.baseDeposit.lp);
     const accruedBalance = (prices['lp-3pool-curve'][currency] * balance.accruedInterest.baseLP) + (prices['curve-dao-token'][currency] * balance.accruedInterest.crv);
 
-    const finalDepositBalance = (prices['dai'][currency] * totalDeposits.dai) + (prices['usd-coin'][currency] * totalDeposits.usdc) + (prices['tether'][currency] * totalDeposits.usdt);
-    const finalWithdrawnBalance = prices['lp-3pool-curve'][currency] * totalLPWithdrawn;
+    let finalDepositBalance = 0;
+    let finalWithdrawnBalance = 0;
+
+    // TODO Find since and add any that is not added up until current
+
+    const lastBalanceUpdate = balance.date;
+    const lastBalanceUpdateUTC = zonedTimeToUtc(lastBalanceUpdate, 'UTC');
+    if (!isToday(lastBalanceUpdateUTC)) {
+        const todaysActivity = await findToday(loadedDb, 'ledger');
+
+        const deposits = todaysActivity.filter(entry => entry.type == 'deposit' && entry.user == user);
+        const totalDeposits = deposits.reduce(function (acc, entry) {
+            acc.dai += entry.amount.dai;
+            acc.usdc += entry.amount.usdc;
+            acc.usdt += entry.amount.usdt;
+            return acc;
+        }, { dai: 0, usdc: 0, usdt: 0});
+
+        const withdraws = todaysActivity.filter(entry => entry.type == 'withdraw' && entry.user == user);
+        const totalLPWithdrawn = withdraws.reduce(function (acc, entry) {
+            return acc + entry.lpAmount;
+        }, 0);
+
+        finalDepositBalance = (prices['dai'][currency] * totalDeposits.dai) + (prices['usd-coin'][currency] * totalDeposits.usdc) + (prices['tether'][currency] * totalDeposits.usdt);
+        finalWithdrawnBalance = prices['lp-3pool-curve'][currency] * totalLPWithdrawn;
+    };
 
     const baseDepositBalance = currentBalance + finalDepositBalance - finalWithdrawnBalance;
 
@@ -59,6 +77,7 @@ const proportionAndUpdateWithdraw = async (_db, userWithdrawals, totalLPWithdraw
         const daiReceived = withdrawalResult.realisedAssetBal.dai * proportion;
         const usdcReceived = withdrawalResult.realisedAssetBal.usdc * proportion;
         const usdtReceived = withdrawalResult.realisedAssetBal.usdt * proportion;
+
         balance.baseDeposit = updateBaseDeposit(balance.baseDeposit, -userWithdrawals[userKey].lp, -daiReceived, -usdcReceived, -usdtReceived);
 
         await updateDocument(_db, 'userBalances', balance);

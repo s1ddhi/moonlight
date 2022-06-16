@@ -9,9 +9,16 @@ const { loadDB, findByUserID, findTotals, findUserProportions, findUserIDBalance
 
 const axios = require('axios');
 
+const isToday = require('date-fns/isToday');
+
 const { userBalanceAggregator, proportionAndUpdateWithdraw, proportionAndUpdateLPDeposit, updateBaseDeposit, buildBaseDeposit, buildAccruedInterest, userBalanceDocument } = require('../utilities');
 
 app.get('/', (_, res) => {
+    const date = new Date();
+    date.setHours(0,0,0,-1);
+    // date.setFullYear(2022, 5, 4);
+    console.log(date);
+    console.log(isToday(date));
     res.send('Hello World!');
 });
 
@@ -64,6 +71,10 @@ app.get('/updateUserBalances', async (_, res) => {
         return;
     }
     const users = await findAll(loadedDb, 'userBalances');
+    if (users.length === 0) {
+        res.send('No users to update today');
+        return;
+    }
 
     for (const userEntry of users) {
         const newLP = calculateFinalAmount(userEntry.baseDeposit.lp, userEntry.accruedInterest.lp, apysToday.baseApy, dayInYears);
@@ -115,14 +126,24 @@ app.get('/updateWithTodayActivity', async (_, res) => {
 
         // Update user's own balance
         if (!userDeposits[entry.user]) {
-            userDeposits[entry.user] = {dai: entry.amount.dai, usdc: entry.amount.usdc, usdt: entry.amount.usdt};
+            userDeposits[entry.user] = {
+                dai: entry.amount.dai,
+                usdc: entry.amount.usdc,
+                usdt: entry.amount.usdt
+        };
         } else {
-            userDeposits[entry.user] = {dai: userDeposits[entry.user].dai + entry.amount.dai, usdc: userDeposits[entry.user].usdc + entry.amount.usdc, usdt: userDeposits[entry.user].usdt + entry.amount.usdt};
+            userDeposits[entry.user] = {
+                dai: userDeposits[entry.user].dai + entry.amount.dai,
+                usdc: userDeposits[entry.user].usdc + entry.amount.usdc,
+                usdt: userDeposits[entry.user].usdt + entry.amount.usdt
+            };
         }
     };
 
-    const depositResult = await oneShotDeposit({dai: daiDeposit, usdc: usdcDeposit, usdt: usdtDeposit});
-    await proportionAndUpdateLPDeposit(loadedDb, userDeposits, daiDeposit, depositResult);
+    if (daiDeposit !== 0 || usdcDeposit !== 0 || usdtDeposit !== 0) {
+        const depositResult = await oneShotDeposit({dai: daiDeposit, usdc: usdcDeposit, usdt: usdtDeposit});
+        await proportionAndUpdateLPDeposit(loadedDb, userDeposits, daiDeposit, depositResult);
+    };
 
     // TODO handle insufficient balance withdrawal
     // Deduct 2% off from interest gained (keep track of interest pulling out so can transfer 2% to treasury)
@@ -133,17 +154,22 @@ app.get('/updateWithTodayActivity', async (_, res) => {
 
         // Update user's own balance
         if (!userWithdrawals[entry.user]) {
-            userWithdrawals[entry.user] = {lp: entry.lpAmount};
+            userWithdrawals[entry.user] = {
+                lp: entry.lpAmount
+            };
         } else {
-            userWithdrawals[entry.user] = {lp: userWithdrawals[entry.user].lp = entry.lpAmount};
+            userWithdrawals[entry.user] = {
+                lp: userWithdrawals[entry.user].lp + entry.lpAmount
+            };
         }
     };
 
-    const withdrawalResult = await oneShotWithdraw(lpWithdraw);
-    await proportionAndUpdateWithdraw(loadedDb, userWithdrawals, lpWithdraw, withdrawalResult);
-
-    // TODO - will transfer stablecoins to user account
-    console.log("[Transfer funds to each user]")
+    if (lpWithdraw !== 0) {
+        const withdrawalResult = await oneShotWithdraw(lpWithdraw);
+        await proportionAndUpdateWithdraw(loadedDb, userWithdrawals, lpWithdraw, withdrawalResult);
+        // TODO - will transfer stablecoins to user account
+        console.log("[Transfer funds to each user]")
+    };
 
     res.send("Completed batched deposit and withdraw as well as updating new balances of the day")
 });
@@ -157,6 +183,12 @@ app.get('/userBalance', jsonParser, async (req, res) => {
     }
 
     const userBalance = await userBalanceAggregator(req.body.user, req.body.currency);
+
+    if (Object.keys(userBalance).length == 0) {
+        res.status(400).send(`User ${req.body.user} not found`);
+        return;
+    }
+
     res.send(augmentUserBalance(userBalance, TAKEHOME_PERCENT));
 });
 

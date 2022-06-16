@@ -4,7 +4,7 @@ const bodyParser = require('body-parser');
 const jsonParser = bodyParser.json();
 
 const Web3 = require('web3');
-const CurveLendingABIAddress = "0x17f4e8B3CA35aC210c4Cc1478241f6E3A9CBB1AA"; // TBC
+const CurveLendingABIAddress = "0xe1B08c5ac9589FB9A89EEA93F8C44EaFaA6C4124"; // TBC
 
 const fs = require('fs');
 const curveContract = JSON.parse(fs.readFileSync('src/contracts/CurveLending.json', 'utf8'));
@@ -12,21 +12,19 @@ const curveContract = JSON.parse(fs.readFileSync('src/contracts/CurveLending.jso
 const web3 = new Web3("http://localhost:8545");
 const CurveLendingContract = new web3.eth.Contract(curveContract.abi, CurveLendingABIAddress);
 
-const { loadDB, findByUserID, findUserIDBalance, insertDocument, closeDB } = require('../mongoDB');
+const { loadDB, insertDocument } = require('../mongoDB');
+const { userBalanceAggregator } = require('../utilities');
 
 const LEDGER_COLLECTION = 'ledger';
 const WITHDRAW_TYPE = 'withdraw';
 const DEPOSIT_TYPE = 'deposit';
 
-// TODO TEST METHODS BELOW THAT IT LOGS TO LEDGER AND COMBINE WITH THE CRON JOB TO CHECK LEDGER GETS POLLED PROPERLY
 
 // TODO check balance available to withdraw
 const oneShotWithdraw = async (requestedWithdrawalLP) => {
     const accounts = await web3.eth.getAccounts();
 
     const intialAssetBal = await getContractBalance();
-
-    console.log(`Batched withdrawing ${requestedWithdrawalLP}`)
 
     await CurveLendingContract.methods
     .oneShotWithdraw(unnormalise(requestedWithdrawalLP, ERC20_DECIMAL))
@@ -40,6 +38,8 @@ const oneShotWithdraw = async (requestedWithdrawalLP) => {
     const finalAssetBal = await getContractBalance();
     const realisedAssetBal = findAssetDifference(intialAssetBal, finalAssetBal);
 
+    console.log(`Batched withdrawn ${requestedWithdrawalLP} received ${JSON.stringify(realisedAssetBal)}`);
+
     return({
         requestedWithdrawalLP,
         realisedAssetBal
@@ -48,13 +48,16 @@ const oneShotWithdraw = async (requestedWithdrawalLP) => {
 
 // TODO check balance sufficiency - against current balance
 router.post('/withdrawRequest', jsonParser, async (req, res) => {
-    if (!req.body.user || !req.body.requestedWithdrawalLP) {
+    if (!req.body.user || !req.body.requestedWithdrawalLP || req.body.currency) {
         res.status(400).send("Missing body attributes");
         return;
     }
 
     const user = req.body.user;
     const requestedWithdrawalLP = req.body.requestedWithdrawalLP;
+    const currency = req.body.currency;
+
+    const userBalance = userBalanceAggregator(user, currency);
 
     const loadedDb = await loadDB();
 
@@ -98,8 +101,6 @@ const oneShotDeposit = async (requestedDeposit) => {
         return res;
         });
 
-    console.log(`Batched depositing ${JSON.stringify(requestedDeposit)}`);
-
     await CurveLendingContract.methods
         .oneShotLend(unnormalise(requestedDeposit.dai, DAI_DECIMAL), unnormalise(requestedDeposit.usdc, USDC_DECIMAL), unnormalise(requestedDeposit.usdt, USDT_DECIMAL))
         .send({ from: accounts[0], gas: 1e7 }, function (err, _) {
@@ -120,6 +121,8 @@ const oneShotDeposit = async (requestedDeposit) => {
         });
 
     const stakedConvexLPBalDifference = web3.utils.toBN(finalStakedConvexLPBal).sub(web3.utils.toBN(initalStakedConvexLPBal));
+
+    console.log(`Batched depositing ${JSON.stringify(requestedDeposit)} receiving ${normalise(stakedConvexLPBalDifference, ERC20_DECIMAL).toNumber()} LPs`);
 
     return({
         requestedDeposit,
@@ -263,15 +266,6 @@ router.post('/withdraw', jsonParser, async (req, res) => {
     const intialAssetBal = await getContractBalance();
 
     const loadedDb = await loadDB();
-
-    // TODO change to check LP balance of `userBalances`
-    // const aggregatedBalance = await findUserIDBalance(loadedDb, LEDGER_COLLECTION, user, DEPOSIT_TYPE);
-
-    // if (aggregatedBalance < requestedWithdrawalLP) {
-    //     res.statusCode = 400;
-    //     res.send(`There is insufficient balance for user ${user}`);
-    //     return;
-    // };
 
     console.log(`Withdrawing ${requestedWithdrawalLP} from user ${user}`)
 
