@@ -13,6 +13,25 @@ const isToday = require('date-fns/isToday');
 
 const { userBalanceAggregator, proportionAndUpdateWithdraw, proportionAndUpdateLPDeposit, updateBaseDeposit, buildBaseDeposit, buildAccruedInterest, userBalanceDocument } = require('../utilities');
 
+app.use(function (req, res, next) {
+
+    // Website you wish to allow to connect
+    res.setHeader('Access-Control-Allow-Origin', 'http://localhost:19006');
+
+    // Request methods you wish to allow
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
+
+    // Request headers you wish to allow
+    res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type');
+
+    // Set to true if you need the website to include cookies in the requests sent
+    // to the API (e.g. in case you use sessions)
+    res.setHeader('Access-Control-Allow-Credentials', true);
+
+    // Pass to next layer of middleware
+    next();
+});
+
 app.get('/', (_, res) => {
     const date = new Date();
     date.setHours(0,0,0,-1);
@@ -77,8 +96,8 @@ app.get('/updateUserBalances', async (_, res) => {
     }
 
     for (const userEntry of users) {
-        const newLP = calculateFinalAmount(userEntry.baseDeposit.lp, userEntry.accruedInterest.lp, apysToday.baseApy, dayInYears);
-        const newCRV = calculateFinalAmount(userEntry.baseDeposit.lp, userEntry.accruedInterest.crv, apysToday.crvApy, dayInYears);
+        const newLP = calculateFinalAmount(!userEntry.baseDeposit.lp ? 0 : userEntry.baseDeposit.lp, !userEntry.accruedInterest.baseLP ? 0 : !userEntry.accruedInterest.baseLP, apysToday.baseApy, dayInYears);
+        const newCRV = calculateFinalAmount(!userEntry.baseDeposit.lp ? 0 : userEntry.baseDeposit.lp, !userEntry.accruedInterest.crv ? 0 : !userEntry.accruedInterest.crv, apysToday.crvApy, dayInYears);
         userEntry.accruedInterest = {baseLP: newLP, crv: newCRV};
         await updateDocument(loadedDb, 'userBalances', userEntry);
     };
@@ -86,6 +105,7 @@ app.get('/updateUserBalances', async (_, res) => {
 });
 
 const calculateFinalAmount = (initialCapital, currentBalance, apy, timeInYears) => {
+    console.log("lel", initialCapital, currentBalance, apy);
     return (initialCapital * (apy/100) * timeInYears) + currentBalance;
 };
 
@@ -165,6 +185,7 @@ app.get('/updateWithTodayActivity', async (_, res) => {
     };
 
     if (lpWithdraw !== 0) {
+        console.log(Math.floor(lpWithdraw));
         const withdrawalResult = await oneShotWithdraw(lpWithdraw);
         await proportionAndUpdateWithdraw(loadedDb, userWithdrawals, lpWithdraw, withdrawalResult);
         // TODO - will transfer stablecoins to user account
@@ -176,13 +197,18 @@ app.get('/updateWithTodayActivity', async (_, res) => {
 
 const TAKEHOME_PERCENT = 0.02;
 
-app.get('/userBalance', jsonParser, async (req, res) => {
+app.put('/userBalance', jsonParser, async (req, res) => {
+    console.log(req.body);
     if (!req.body.user || !req.body.currency) {
         res.status(400).send("Missing body attributes");
         return;
     }
 
     const userBalance = await userBalanceAggregator(req.body.user, req.body.currency);
+
+    const apys = await getAPYsNow();
+
+    userBalance.apy = aggregateAPY(apys['3pool']);
 
     if (Object.keys(userBalance).length == 0) {
         res.status(400).send(`User ${req.body.user} not found`);
@@ -191,6 +217,22 @@ app.get('/userBalance', jsonParser, async (req, res) => {
 
     res.send(augmentUserBalance(userBalance, TAKEHOME_PERCENT));
 });
+
+const getAPYsNow = async () => {
+    const apys = await axios
+        .get(convexAPYAPI)
+        .then(res => {;
+            return res.data.apys;
+        })
+        .catch(error => {
+            console.log('Issue with fetching Convex APYs', error);
+    });
+    return apys;
+}
+
+const aggregateAPY = (todayAPYs) => {
+    return todayAPYs.baseApy + todayAPYs.crvApy;
+};
 
 const augmentUserBalance = (userBalance, takehomePercentage) => {
     const userReceivesPercent = 1 - takehomePercentage;

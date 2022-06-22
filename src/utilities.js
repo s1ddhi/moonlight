@@ -8,16 +8,20 @@ const { loadDB, findByUserID, findTotals, findUserProportions, findUserIDBalance
 
 const userBalanceAggregator = async (user, currency) => {
     const loadedDb = await loadDB();
-    const balance = (await findByUserID(loadedDb, 'userBalances', user))[0];
+    let balance = (await findByUserID(loadedDb, 'userBalances', user))[0];
 
     if (!balance) {
-        return {};
-    }
+        balance = {
+            baseDeposit: { lp: 0 },
+            accruedInterest:  { baseLP: 0, crv: 0 },
+            currency
+        };
+    };
 
     prices = await getSpotPrice(currency);
 
-    const currentBalance = (prices['lp-3pool-curve'][currency] * balance.baseDeposit.lp);
-    const accruedBalance = (prices['lp-3pool-curve'][currency] * balance.accruedInterest.baseLP) + (prices['curve-dao-token'][currency] * balance.accruedInterest.crv);
+    const currentBalance = (prices['lp-3pool-curve'][currency] * !balance.baseDeposit.lp ? 0 : balance.baseDeposit.lp);
+    const accruedBalance = (prices['lp-3pool-curve'][currency] * (!balance.accruedInterest.baseLP ? 0 : balance.accruedInterest.baseLP)) + (prices['curve-dao-token'][currency] * (!balance.accruedInterest.crv ? 0 : balance.accruedInterest.crv));
 
     let finalDepositBalance = 0;
     let finalWithdrawnBalance = 0;
@@ -30,6 +34,7 @@ const userBalanceAggregator = async (user, currency) => {
         const todaysActivity = await findToday(loadedDb, 'ledger');
 
         const deposits = todaysActivity.filter(entry => entry.type == 'deposit' && entry.user == user);
+        console.log(deposits);
         const totalDeposits = deposits.reduce(function (acc, entry) {
             acc.dai += entry.amount.dai;
             acc.usdc += entry.amount.usdc;
@@ -128,4 +133,4 @@ const userBalanceDocument = (user, baseDeposit, accruedInterest) => {
     }
 };
 
-module.exports = { userBalanceAggregator, proportionAndUpdateWithdraw, proportionAndUpdateLPDeposit, updateBaseDeposit, buildBaseDeposit, buildAccruedInterest, userBalanceDocument };
+module.exports = { userBalanceAggregator, proportionAndUpdateWithdraw, proportionAndUpdateLPDeposit, updateBaseDeposit, buildBaseDeposit, buildAccruedInterest, userBalanceDocument, getSpotPrice };

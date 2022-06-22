@@ -4,7 +4,7 @@ const bodyParser = require('body-parser');
 const jsonParser = bodyParser.json();
 
 const Web3 = require('web3');
-const CurveLendingABIAddress = "0xe1B08c5ac9589FB9A89EEA93F8C44EaFaA6C4124"; // TBC
+const CurveLendingABIAddress = "0xcb8943172bdBe8F433a5E16e261b1f2Eee2BfE18"; // TBC
 
 const fs = require('fs');
 const curveContract = JSON.parse(fs.readFileSync('src/contracts/CurveLending.json', 'utf8'));
@@ -13,7 +13,7 @@ const web3 = new Web3("http://localhost:8545");
 const CurveLendingContract = new web3.eth.Contract(curveContract.abi, CurveLendingABIAddress);
 
 const { loadDB, insertDocument } = require('../mongoDB');
-const { userBalanceAggregator } = require('../utilities');
+const { userBalanceAggregator, getSpotPrice } = require('../utilities');
 
 const LEDGER_COLLECTION = 'ledger';
 const WITHDRAW_TYPE = 'withdraw';
@@ -46,28 +46,43 @@ const oneShotWithdraw = async (requestedWithdrawalLP) => {
     });
 };
 
-// TODO check balance sufficiency - against current balance
 router.post('/withdrawRequest', jsonParser, async (req, res) => {
-    if (!req.body.user || !req.body.requestedWithdrawalLP || req.body.currency) {
+    console.log(req.body)
+    if (!req.body.user || !req.body.requestedWithdrawal || !req.body.currency) {
         res.status(400).send("Missing body attributes");
         return;
     }
 
     const user = req.body.user;
-    const requestedWithdrawalLP = req.body.requestedWithdrawalLP;
+    const requestedWithdrawal = req.body.requestedWithdrawal;
     const currency = req.body.currency;
 
-    const userBalance = userBalanceAggregator(user, currency);
+    const userBalance = await userBalanceAggregator(user, currency);
+
+    if (requestedWithdrawal > userBalance.baseDepositBalance + userBalance.accruedBalance) {
+        res.status(400).send("Insufficient funds to sustain withdrawal request.");
+        return;
+    }
+
+    // convert to LP
+    const requestedWithdrawalLP = await convertToLP(requestedWithdrawal, currency);
+
+    console.log("withdraw!")
 
     const loadedDb = await loadDB();
 
-    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument({ user, lpAmount: requestedWithdrawalLP }, WITHDRAW_TYPE)); // TODO actually store amount of DAI, USDC, USDT received
+    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument({ user, lpAmount: 100 }, WITHDRAW_TYPE)); // TODO actually store amount of DAI, USDC, USDT received
 
     res.send({
         user,
         requestedWithdrawalLP
     });
 });
+
+const convertToLP = async (amount, currency) => {
+    const prices = await getSpotPrice(currency);
+    return amount / prices['lp-3pool-curve'][currency]
+};
 
 const findAssetDifference = (initial, final) => {
     return({
@@ -90,7 +105,6 @@ const ledgerDocument = (details, type) => {
 const oneShotDeposit = async (requestedDeposit) => {
     const accounts = await web3.eth.getAccounts();
 
-    // TODO Check with simulation which value actually increases
     const initalStakedConvexLPBal = await CurveLendingContract.methods
         .getStakedConvexLPBalance()
         .call(function (err, res) {
@@ -131,23 +145,32 @@ const oneShotDeposit = async (requestedDeposit) => {
 
 // TODO Won't actually deposit but add request to ledger - ensure functionality works as expected
 router.post('/depositRequest', jsonParser, async (req, res) => {
-    if (!req.body.user || !req.body.requestedDeposit) {
+    if (!req.body.user || !req.body.requestedDeposit || !req.body.currency) {
         res.status(400).send("Missing body attributes");
         return;
     }
 
     const user = req.body.user;
     const requestedDeposit = req.body.requestedDeposit;
+    const currency = req.body.currency;
+
+    // TODO This will trigger the fiat to crypto flow and report back the realised cryptoassets sent to the contract
+    const amount = await fiatToCryptoFlow(user, requestedDeposit, currency);
 
     const loadedDb = await loadDB();
 
-    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument({ user, amount: requestedDeposit }, DEPOSIT_TYPE));
+    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument({ user, amount }, DEPOSIT_TYPE));
 
     res.send({
         user,
-        requestedDeposit
+        amount
     })
 });
+
+const fiatToCryptoFlow = async (user, requestedDeposit, currency) => {
+    // To be implemented
+    return {dai: requestedDeposit, usdc: requestedDeposit, usdt: requestedDeposit}
+};
 
 const IERC20ABI = JSON.parse(fs.readFileSync('src/contracts/IERC20.json', 'utf8'));
 
@@ -205,7 +228,8 @@ router.get('/setupAll', async (_, res) => {
 });
 
 const unnormalise = (normalisedAmount, assetDecimal) => {
-    return web3.utils.toBN(normalisedAmount).mul(web3.utils.toBN(10).pow(web3.utils.toBN(assetDecimal)))
+    normalisedAmount = normalisedAmount * (10 ^ assetDecimal);
+    return web3.utils.toBN(normalisedAmount)
 };
 
 const normalise = (unnormalisedAmount, assetDecimal) => {
