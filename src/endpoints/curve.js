@@ -4,7 +4,7 @@ const bodyParser = require('body-parser');
 const jsonParser = bodyParser.json();
 
 const Web3 = require('web3');
-const CurveLendingABIAddress = "0xcb8943172bdBe8F433a5E16e261b1f2Eee2BfE18"; // TBC
+const CurveLendingABIAddress = "0xd78a616b91ed39990a6ab4497c37861ae3c856bef796f4a02c71080085630f53"; // TBC
 
 const fs = require('fs');
 const curveContract = JSON.parse(fs.readFileSync('src/contracts/CurveLending.json', 'utf8'));
@@ -134,7 +134,11 @@ const oneShotDeposit = async (requestedDeposit) => {
         return res;
         });
 
+    console.log("diff", initalStakedConvexLPBal.toString(), finalStakedConvexLPBal.toString())
+
     const stakedConvexLPBalDifference = web3.utils.toBN(finalStakedConvexLPBal).sub(web3.utils.toBN(initalStakedConvexLPBal));
+
+        console.log("diffactual", stakedConvexLPBalDifference.toString())
 
     console.log(`Batched depositing ${JSON.stringify(requestedDeposit)} receiving ${normalise(stakedConvexLPBalDifference, ERC20_DECIMAL).toNumber()} LPs`);
 
@@ -228,8 +232,7 @@ router.get('/setupAll', async (_, res) => {
 });
 
 const unnormalise = (normalisedAmount, assetDecimal) => {
-    normalisedAmount = normalisedAmount * (10 ^ assetDecimal);
-    return web3.utils.toBN(normalisedAmount)
+    return web3.utils.toBN(normalisedAmount).mul(web3.utils.toBN(10).pow(web3.utils.toBN(assetDecimal)));
 };
 
 const normalise = (unnormalisedAmount, assetDecimal) => {

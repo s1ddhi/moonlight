@@ -95,6 +95,7 @@ const proportionAndUpdateLPDeposit = async (_db, userDeposits, totalDaiDeposits,
         const balance = (await findByUserID(_db, 'userBalances', userKey))[0];
 
         const lpReceived = depositResult.convexLPReceived * proportion;
+        console.log("update", proportion, balance, lpReceived)
         balance.baseDeposit = updateBaseDeposit(balance.baseDeposit, lpReceived, 0, 0, 0);
 
         await updateDocument(_db, 'userBalances', balance);

@@ -161,7 +161,9 @@ app.get('/updateWithTodayActivity', async (_, res) => {
     };
 
     if (daiDeposit !== 0 || usdcDeposit !== 0 || usdtDeposit !== 0) {
+        console.log(daiDeposit, usdcDeposit, usdtDeposit)
         const depositResult = await oneShotDeposit({dai: daiDeposit, usdc: usdcDeposit, usdt: usdtDeposit});
+        console.log(depositResult)
         await proportionAndUpdateLPDeposit(loadedDb, userDeposits, daiDeposit, depositResult);
     };
 
@@ -185,7 +187,6 @@ app.get('/updateWithTodayActivity', async (_, res) => {
     };
 
     if (lpWithdraw !== 0) {
-        console.log(Math.floor(lpWithdraw));
         const withdrawalResult = await oneShotWithdraw(lpWithdraw);
         await proportionAndUpdateWithdraw(loadedDb, userWithdrawals, lpWithdraw, withdrawalResult);
         // TODO - will transfer stablecoins to user account
