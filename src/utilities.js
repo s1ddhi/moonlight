@@ -79,11 +79,12 @@ const proportionAndUpdateWithdraw = async (_db, userWithdrawals, totalLPWithdraw
         const proportion = userWithdrawals[userKey].lp / totalLPWithdrawals;
         const balance = (await findByUserID(_db, 'userBalances', userKey))[0];
 
+        // TODO Use as amount to transfer back to user account
         const daiReceived = withdrawalResult.realisedAssetBal.dai * proportion;
         const usdcReceived = withdrawalResult.realisedAssetBal.usdc * proportion;
         const usdtReceived = withdrawalResult.realisedAssetBal.usdt * proportion;
 
-        balance.baseDeposit = updateBaseDeposit(balance.baseDeposit, -userWithdrawals[userKey].lp, -daiReceived, -usdcReceived, -usdtReceived);
+        balance.baseDeposit = updateBaseDeposit(balance.baseDeposit, -userWithdrawals[userKey].lp);
 
         await updateDocument(_db, 'userBalances', balance);
     };
@@ -96,26 +97,20 @@ const proportionAndUpdateLPDeposit = async (_db, userDeposits, totalDaiDeposits,
 
         const lpReceived = depositResult.convexLPReceived * proportion;
         console.log("update", proportion, balance, lpReceived)
-        balance.baseDeposit = updateBaseDeposit(balance.baseDeposit, lpReceived, 0, 0, 0);
+        balance.baseDeposit = updateBaseDeposit(balance.baseDeposit, lpReceived);
 
         await updateDocument(_db, 'userBalances', balance);
     };
 };
 
-const updateBaseDeposit = (current, lp, dai, usdc, usdt) => {
+const updateBaseDeposit = (current, lp) => {
     current.lp += lp;
-    current.dai += dai;
-    current.usdc += usdc;
-    current.usdt += usdt;
     return current;
 };
 
-const buildBaseDeposit = (lp, dai, usdc, usdt) => {
+const buildBaseDeposit = (lp) => {
     return {
-        lp,
-        dai,
-        usdc,
-        usdt
+        lp
     }
 };
 

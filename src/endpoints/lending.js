@@ -125,12 +125,12 @@ app.get('/updateWithTodayActivity', async (_, res) => {
         let user = (await findByUserID(loadedDb, 'userBalances', entry.user))[0];
 
         if (!user) {
-            const baseDeposit = buildBaseDeposit(0, entry.amount.dai, entry.amount.usdc, entry.amount.usdt);
+            const baseDeposit = buildBaseDeposit(0);
             const accruedInterest = buildAccruedInterest(0, 0);
             user = userBalanceDocument(entry.user, baseDeposit, accruedInterest);
             await insertDocument(loadedDb, 'userBalances', user);
         } else {
-            user.baseDeposit = updateBaseDeposit(user.baseDeposit, 0, entry.amount.dai, entry.amount.usdc, entry.amount.usdt);
+            user.baseDeposit = updateBaseDeposit(user.baseDeposit, 0);
             await updateDocument(loadedDb, 'userBalances', user);
         }
 

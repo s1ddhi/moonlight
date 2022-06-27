@@ -198,7 +198,7 @@ const USDT_DECIMAL = 6;
 const ERC20_DECIMAL = 18;
 
 router.get('/setupAll', async (_, res) => {
-    const assetVal = 1e6;
+    const assetVal = 4e6;
 
     await DAI_CONTRACT.methods
         .transfer(CurveLendingABIAddress, unnormalise(assetVal, DAI_DECIMAL))
