@@ -4,7 +4,7 @@ const bodyParser = require('body-parser');
 const jsonParser = bodyParser.json();
 
 const Web3 = require('web3');
-const CurveLendingABIAddress = "0xd78a616b91ed39990a6ab4497c37861ae3c856bef796f4a02c71080085630f53"; // TBC
+const CurveLendingABIAddress = "0x2712D3EA6339bf9C530eFf5672b3B05180Dd4181"; // TBC
 
 const fs = require('fs');
 const curveContract = JSON.parse(fs.readFileSync('src/contracts/CurveLending.json', 'utf8'));
@@ -26,8 +26,10 @@ const oneShotWithdraw = async (requestedWithdrawalLP) => {
 
     const intialAssetBal = await getContractBalance();
 
+    console.log("yay")
+
     await CurveLendingContract.methods
-    .oneShotWithdraw(unnormalise(requestedWithdrawalLP, ERC20_DECIMAL))
+    .oneShotWithdraw(unnormalise(requestedWithdrawalLP, ERC20_DECIMAL), -1)
     .send({ from: accounts[0], gas: 1e7 }, function (err, _) {
         if (err) {
             console.log("An error occured in oneShotLendAll", err)
@@ -65,13 +67,13 @@ router.post('/withdrawRequest', jsonParser, async (req, res) => {
     }
 
     // convert to LP
-    const requestedWithdrawalLP = await convertToLP(requestedWithdrawal, currency);
+    const requestedWithdrawalLP = Math.floor(await convertToLP(requestedWithdrawal, currency));
 
     console.log("withdraw!")
 
     const loadedDb = await loadDB();
 
-    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument({ user, lpAmount: 100 }, WITHDRAW_TYPE)); // TODO actually store amount of DAI, USDC, USDT received
+    await insertDocument(loadedDb, LEDGER_COLLECTION, ledgerDocument({ user, lpAmount: requestedWithdrawalLP }, WITHDRAW_TYPE)); // TODO actually store amount of DAI, USDC, USDT received
 
     res.send({
         user,

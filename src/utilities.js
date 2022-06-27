@@ -134,4 +134,9 @@ const userBalanceDocument = (user, baseDeposit, accruedInterest) => {
     }
 };
 
-module.exports = { userBalanceAggregator, proportionAndUpdateWithdraw, proportionAndUpdateLPDeposit, updateBaseDeposit, buildBaseDeposit, buildAccruedInterest, userBalanceDocument, getSpotPrice };
+const calculateFinalAmount = (initialCapital, currentBalance, apy, timeInYears) => {
+    console.log("lel", initialCapital, currentBalance, apy);
+    return (initialCapital * (apy/100) * timeInYears) + currentBalance;
+};
+
+module.exports = { userBalanceAggregator, proportionAndUpdateWithdraw, proportionAndUpdateLPDeposit, updateBaseDeposit, buildBaseDeposit, buildAccruedInterest, userBalanceDocument, getSpotPrice, calculateFinalAmount };
