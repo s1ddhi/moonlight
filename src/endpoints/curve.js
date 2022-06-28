@@ -4,7 +4,7 @@ const bodyParser = require('body-parser');
 const jsonParser = bodyParser.json();
 
 const Web3 = require('web3');
-const CurveLendingABIAddress = "0x2712D3EA6339bf9C530eFf5672b3B05180Dd4181"; // TBC
+const CurveLendingABIAddress = "0xfF531828dDD054065FA5D6F6e3bA2d009A554EE6"; // TBC
 
 const fs = require('fs');
 const curveContract = JSON.parse(fs.readFileSync('src/contracts/CurveLending.json', 'utf8'));
@@ -135,8 +135,6 @@ const oneShotDeposit = async (requestedDeposit) => {
             }
         return res;
         });
-
-    console.log("diff", initalStakedConvexLPBal.toString(), finalStakedConvexLPBal.toString())
 
     const stakedConvexLPBalDifference = web3.utils.toBN(finalStakedConvexLPBal).sub(web3.utils.toBN(initalStakedConvexLPBal));
 

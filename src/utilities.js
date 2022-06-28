@@ -1,8 +1,6 @@
 const axios = require('axios');
-const res = require('express/lib/response');
 
 const isToday = require('date-fns/isToday');
-const zonedTimeToUtc = require('date-fns-tz/zonedTimeToUtc');
 
 const { loadDB, findByUserID, findTotals, findUserProportions, findUserIDBalance, insertDocument, findAll, findToday, updateDocument } = require('./mongoDB');
 
@@ -26,11 +24,9 @@ const userBalanceAggregator = async (user, currency) => {
     let finalDepositBalance = 0;
     let finalWithdrawnBalance = 0;
 
-    // TODO Find since and add any that is not added up until current
-
     const lastBalanceUpdate = balance.date;
-    const lastBalanceUpdateUTC = zonedTimeToUtc(lastBalanceUpdate, 'UTC');
-    if (!isToday(lastBalanceUpdateUTC)) {
+
+    if (!isToday(lastBalanceUpdate)) {
         const todaysActivity = await findToday(loadedDb, 'ledger');
 
         const deposits = todaysActivity.filter(entry => entry.type == 'deposit' && entry.user == user);

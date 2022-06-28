@@ -34,10 +34,13 @@ app.use(function (req, res, next) {
 
 app.get('/', (_, res) => {
     const date = new Date();
-    date.setHours(0,0,0,-1);
+    date.setHours(0, 0, 0, 1);
+    date.setDate(28)
+
+    const date2 = zonedTimeToUtc(date, 'America/Vancouver')
     // date.setFullYear(2022, 5, 4);
-    console.log(date);
-    console.log(isToday(date));
+    console.log(date, date2);
+    console.log(isToday(date), isToday(date2));
     res.send('Hello World!');
 });
 
@@ -155,9 +158,7 @@ app.get('/updateWithTodayActivity', async (_, res) => {
     };
 
     if (daiDeposit !== 0 || usdcDeposit !== 0 || usdtDeposit !== 0) {
-        console.log(daiDeposit, usdcDeposit, usdtDeposit)
         const depositResult = await oneShotDeposit({dai: daiDeposit, usdc: usdcDeposit, usdt: usdtDeposit});
-        console.log(depositResult)
         await proportionAndUpdateLPDeposit(loadedDb, userDeposits, daiDeposit, depositResult);
     };
 
